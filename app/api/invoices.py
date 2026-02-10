@@ -1,5 +1,4 @@
 import re
-from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.db import get_db
+from app.models.bank_account import BankAccount
 from app.models.customer import Customer
 from app.models.invoice import Invoice
+from app.models.invoice_service import InvoiceService
 from app.models.user import User
 from app.schemas.invoice import InvoiceCreate, InvoiceListItem, InvoiceRead, InvoiceUpdate
 
@@ -36,8 +37,8 @@ def _generate_invoice_number(db: Session, user_id: UUID) -> str:
 def list_invoices(
     status_filter: str | None = Query(None, alias="status"),
     customer_id: UUID | None = Query(None),
-    issue_date_from: date | None = Query(None),
-    issue_date_to: date | None = Query(None),
+    issue_date_from=Query(None),
+    issue_date_to=Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -87,13 +88,32 @@ def create_invoice(
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
 
-    invoice_data = data.model_dump()
-    invoice_number = invoice_data.pop("invoice_number") or _generate_invoice_number(db, current_user.id)
+    # Verify bank account ownership if provided
+    if data.bank_account_id is not None:
+        bank_account = (
+            db.query(BankAccount)
+            .filter(BankAccount.id == data.bank_account_id, BankAccount.created_by_user_id == current_user.id)
+            .first()
+        )
+        if not bank_account:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bank account not found")
+
+    # Compute total from services
+    total_amount = sum(s.amount for s in data.services)
+
+    invoice_number = data.invoice_number or _generate_invoice_number(db, current_user.id)
 
     invoice = Invoice(
         created_by_user_id=current_user.id,
+        customer_id=data.customer_id,
+        bank_account_id=data.bank_account_id,
         invoice_number=invoice_number,
-        **invoice_data,
+        issue_date=data.issue_date,
+        due_date=data.due_date,
+        currency=data.currency,
+        status=data.status,
+        total_amount=total_amount,
+        notes=data.notes,
     )
 
     # Retry once if invoice number collides (race condition)
@@ -111,6 +131,18 @@ def create_invoice(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Invoice number already exists",
                 )
+
+    # Create invoice services
+    for idx, svc in enumerate(data.services):
+        service = InvoiceService(
+            created_by_user_id=current_user.id,
+            invoice_id=invoice.id,
+            service_title=svc.service_title,
+            service_description=svc.service_description,
+            amount=svc.amount,
+            sort_order=svc.sort_order if svc.sort_order is not None else idx,
+        )
+        db.add(service)
 
     db.commit()
     db.refresh(invoice)
@@ -142,9 +174,42 @@ def update_invoice(
         if not customer:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
 
+    # If changing bank account, verify ownership
+    if data.bank_account_id is not None:
+        bank_account = (
+            db.query(BankAccount)
+            .filter(BankAccount.id == data.bank_account_id, BankAccount.created_by_user_id == current_user.id)
+            .first()
+        )
+        if not bank_account:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bank account not found")
+
     update_data = data.model_dump(exclude_unset=True)
+    services_data = update_data.pop("services", None)
+
+    # Update scalar fields
     for field, value in update_data.items():
         setattr(invoice, field, value)
+
+    # Replace services if provided
+    if services_data is not None:
+        # Delete existing services
+        db.query(InvoiceService).filter(InvoiceService.invoice_id == invoice.id).delete()
+
+        # Insert new services
+        for idx, svc in enumerate(services_data):
+            service = InvoiceService(
+                created_by_user_id=current_user.id,
+                invoice_id=invoice.id,
+                service_title=svc["service_title"],
+                service_description=svc.get("service_description"),
+                amount=svc["amount"],
+                sort_order=svc.get("sort_order", idx),
+            )
+            db.add(service)
+
+        # Recompute total
+        invoice.total_amount = sum(s["amount"] for s in services_data)
 
     db.commit()
     db.refresh(invoice)

@@ -4,7 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from app.schemas.bank_account import BankAccountRead
 from app.schemas.customer import CustomerRead
+from app.schemas.invoice_service import InvoiceServiceCreate, InvoiceServiceRead
 
 
 VALID_STATUSES = ("draft", "sent", "paid", "void")
@@ -17,16 +19,15 @@ class InvoiceCreate(BaseModel):
     due_date: date
     currency: str = "USD"
     status: str = "draft"
-    service_title: str
-    service_description: str
-    amount_total: Decimal
+    bank_account_id: UUID | None = None
+    services: list[InvoiceServiceCreate]
     notes: str | None = None
 
-    @field_validator("amount_total")
+    @field_validator("services")
     @classmethod
-    def amount_must_be_positive(cls, v: Decimal) -> Decimal:
-        if v <= 0:
-            raise ValueError("amount_total must be greater than 0")
+    def services_must_not_be_empty(cls, v: list[InvoiceServiceCreate]) -> list[InvoiceServiceCreate]:
+        if len(v) < 1:
+            raise ValueError("At least one service is required")
         return v
 
     @field_validator("currency")
@@ -57,16 +58,15 @@ class InvoiceUpdate(BaseModel):
     due_date: date | None = None
     currency: str | None = None
     status: str | None = None
-    service_title: str | None = None
-    service_description: str | None = None
-    amount_total: Decimal | None = None
+    bank_account_id: UUID | None = None
+    services: list[InvoiceServiceCreate] | None = None
     notes: str | None = None
 
-    @field_validator("amount_total")
+    @field_validator("services")
     @classmethod
-    def amount_must_be_positive(cls, v: Decimal | None) -> Decimal | None:
-        if v is not None and v <= 0:
-            raise ValueError("amount_total must be greater than 0")
+    def services_must_not_be_empty(cls, v: list[InvoiceServiceCreate] | None) -> list[InvoiceServiceCreate] | None:
+        if v is not None and len(v) < 1:
+            raise ValueError("At least one service is required")
         return v
 
     @field_validator("currency")
@@ -90,13 +90,13 @@ class InvoiceRead(BaseModel):
     id: UUID
     invoice_number: str
     customer: CustomerRead
+    bank_account: BankAccountRead | None
     issue_date: date
     due_date: date
     currency: str
     status: str
-    service_title: str
-    service_description: str
-    amount_total: Decimal
+    total_amount: Decimal
+    services: list[InvoiceServiceRead]
     notes: str | None
     created_at: datetime
     updated_at: datetime
@@ -112,7 +112,7 @@ class InvoiceListItem(BaseModel):
     issue_date: date
     due_date: date
     status: str
-    amount_total: Decimal
+    total_amount: Decimal
     currency: str
 
     class Config:

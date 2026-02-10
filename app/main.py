@@ -5,6 +5,7 @@ from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.customers import router as customers_router
 from app.api.invoices import router as invoices_router
+from app.api.bank_accounts import router as bank_accounts_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -25,3 +26,4 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(customers_router)
 app.include_router(invoices_router)
+app.include_router(bank_accounts_router)
