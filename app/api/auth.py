@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.firebase import verify_firebase_token
 from app.models.user import User
+from app.models.user_role import UserRole
 from app.schemas.auth import RegisterRequest, LoginRequest, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,11 +40,14 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
             detail="User already exists",
         )
 
+    client_role = db.query(UserRole).filter(UserRole.name == "CLIENT").first()
+
     new_user = User(
         email=email,
         first_name=request.first_name,
         last_name=request.last_name,
         firebase_id=firebase_uid,
+        role_id=client_role.id if client_role else None,
     )
     db.add(new_user)
     db.commit()
