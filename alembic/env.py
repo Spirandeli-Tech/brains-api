@@ -11,6 +11,8 @@ from app.core.db import Base
 from app.models.base import SystemMeta  # Import all models here
 from app.models.user_role import UserRole  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.customer import Customer  # noqa: F401
+from app.models.invoice import Invoice  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
