@@ -29,6 +29,9 @@ ENV/
 # Environment variables
 .env
 
+# Firebase service account key
+*-firebase-adminsdk-*
+
 # IDE
 .vscode/
 .idea/
@@ -48,3 +51,5 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+brains-space-firebase-adminsdk-fbsvc-f71bf85668.json
