@@ -19,6 +19,19 @@ class InvoiceServiceCreate(BaseModel):
         return v
 
 
+class InvoiceServiceUpdate(BaseModel):
+    service_title: str | None = None
+    service_description: str | None = None
+    amount: Decimal | None = None
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and v <= 0:
+            raise ValueError("amount must be greater than 0")
+        return v
+
+
 class InvoiceServiceRead(BaseModel):
     id: UUID
     service_title: str

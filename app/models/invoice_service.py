@@ -21,7 +21,7 @@ class InvoiceService(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     invoice_id = Column(
-        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=True
     )
     service_title = Column(String, nullable=False)
     service_description = Column(Text, nullable=True)
