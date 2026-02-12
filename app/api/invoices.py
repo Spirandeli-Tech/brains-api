@@ -114,6 +114,9 @@ def create_invoice(
         status=data.status,
         total_amount=total_amount,
         notes=data.notes,
+        is_recurrent=data.is_recurrent,
+        recurrence_frequency=data.recurrence_frequency,
+        recurrence_day=data.recurrence_day,
     )
 
     # Retry once if invoice number collides (race condition)

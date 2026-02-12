@@ -291,3 +291,119 @@ def test_update_bank_account(client_a):
     assert resp.status_code == 200
     assert resp.json()["bank_name"] == "Updated Bank Name"
     assert resp.json()["label"] == "Updatable Account"  # unchanged
+
+
+# --- Recurrence tests ---
+
+def test_create_recurrent_invoice_monthly(client_a):
+    customer = _create_customer(client_a, "Monthly Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+        recurrence_frequency="monthly",
+        recurrence_day=15,
+    )
+    assert resp.status_code == 201
+    invoice = resp.json()
+    assert invoice["is_recurrent"] is True
+    assert invoice["recurrence_frequency"] == "monthly"
+    assert invoice["recurrence_day"] == 15
+
+
+def test_create_recurrent_invoice_weekly(client_a):
+    customer = _create_customer(client_a, "Weekly Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+        recurrence_frequency="weekly",
+        recurrence_day=2,
+    )
+    assert resp.status_code == 201
+    invoice = resp.json()
+    assert invoice["is_recurrent"] is True
+    assert invoice["recurrence_frequency"] == "weekly"
+    assert invoice["recurrence_day"] == 2
+
+
+def test_create_recurrent_invoice_daily(client_a):
+    customer = _create_customer(client_a, "Daily Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+        recurrence_frequency="daily",
+    )
+    assert resp.status_code == 201
+    invoice = resp.json()
+    assert invoice["is_recurrent"] is True
+    assert invoice["recurrence_frequency"] == "daily"
+    assert invoice["recurrence_day"] is None
+
+
+def test_create_non_recurrent_invoice_defaults(client_a):
+    customer = _create_customer(client_a, "Default Corp")
+    resp = _create_invoice(client_a, customer["id"])
+    assert resp.status_code == 201
+    invoice = resp.json()
+    assert invoice["is_recurrent"] is False
+    assert invoice["recurrence_frequency"] is None
+    assert invoice["recurrence_day"] is None
+
+
+def test_create_recurrent_without_frequency_fails(client_a):
+    customer = _create_customer(client_a, "No Freq Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+    )
+    assert resp.status_code == 422
+
+
+def test_create_recurrent_weekly_invalid_day_fails(client_a):
+    customer = _create_customer(client_a, "Bad Weekly Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+        recurrence_frequency="weekly",
+        recurrence_day=9,
+    )
+    assert resp.status_code == 422
+
+
+def test_create_recurrent_monthly_invalid_day_fails(client_a):
+    customer = _create_customer(client_a, "Bad Monthly Corp")
+    resp = _create_invoice(
+        client_a, customer["id"],
+        is_recurrent=True,
+        recurrence_frequency="monthly",
+        recurrence_day=32,
+    )
+    assert resp.status_code == 422
+
+
+def test_update_invoice_toggle_recurrence(client_a):
+    customer = _create_customer(client_a, "Toggle Corp")
+    invoice_resp = _create_invoice(client_a, customer["id"])
+    invoice = invoice_resp.json()
+    assert invoice["is_recurrent"] is False
+
+    # Enable recurrence
+    resp = client_a.put(f"/invoices/{invoice['id']}", json={
+        "is_recurrent": True,
+        "recurrence_frequency": "monthly",
+        "recurrence_day": 1,
+    })
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["is_recurrent"] is True
+    assert updated["recurrence_frequency"] == "monthly"
+    assert updated["recurrence_day"] == 1
+
+    # Disable recurrence
+    resp = client_a.put(f"/invoices/{invoice['id']}", json={
+        "is_recurrent": False,
+    })
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["is_recurrent"] is False
+    assert updated["recurrence_frequency"] is None
+    assert updated["recurrence_day"] is None
