@@ -7,6 +7,7 @@ from app.api.customers import router as customers_router
 from app.api.invoices import router as invoices_router
 from app.api.bank_accounts import router as bank_accounts_router
 from app.api.services import router as services_router
+from app.api.search import router as search_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -29,3 +30,4 @@ app.include_router(customers_router)
 app.include_router(invoices_router)
 app.include_router(bank_accounts_router)
 app.include_router(services_router)
+app.include_router(search_router)
