@@ -8,6 +8,8 @@ from app.api.invoices import router as invoices_router
 from app.api.bank_accounts import router as bank_accounts_router
 from app.api.services import router as services_router
 from app.api.search import router as search_router
+from app.api.transaction_categories import router as transaction_categories_router
+from app.api.transactions import router as transactions_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -31,3 +33,5 @@ app.include_router(invoices_router)
 app.include_router(bank_accounts_router)
 app.include_router(services_router)
 app.include_router(search_router)
+app.include_router(transaction_categories_router)
+app.include_router(transactions_router)

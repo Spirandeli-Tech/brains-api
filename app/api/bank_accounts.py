@@ -8,6 +8,7 @@ from app.core.auth import get_current_user
 from app.core.db import get_db
 from app.models.bank_account import BankAccount
 from app.models.invoice import Invoice
+from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.bank_account import BankAccountCreate, BankAccountRead, BankAccountUpdate
 
@@ -123,6 +124,21 @@ def delete_bank_account(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete bank account that is referenced by invoices",
+        )
+
+    # Block deletion if referenced by transactions
+    transaction_count = (
+        db.query(Transaction)
+        .filter(
+            Transaction.bank_account_id == bank_account_id,
+            Transaction.created_by_user_id == current_user.id,
+        )
+        .count()
+    )
+    if transaction_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete bank account that is referenced by transactions",
         )
 
     db.delete(account)

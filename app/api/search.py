@@ -7,6 +7,7 @@ from app.models.bank_account import BankAccount
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.invoice_service import InvoiceService
+from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.search import SearchResponse, SearchResultGroup, SearchResultItem
 
@@ -126,6 +127,32 @@ def global_search(
                         subtitle=f"${s.amount:,.2f}" if s.amount else None,
                     )
                     for s in services
+                ],
+            )
+        )
+
+    # Transactions — search by description
+    transactions = (
+        db.query(Transaction)
+        .filter(
+            Transaction.created_by_user_id == current_user.id,
+            Transaction.description.ilike(pattern),
+        )
+        .order_by(Transaction.date.desc())
+        .limit(MAX_RESULTS_PER_CATEGORY)
+        .all()
+    )
+    if transactions:
+        data.append(
+            SearchResultGroup(
+                type="transactions",
+                items=[
+                    SearchResultItem(
+                        id=str(t.id),
+                        title=t.description,
+                        subtitle=f"{'+'if t.type=='income' else '-'}{t.currency} {t.amount:,.2f}",
+                    )
+                    for t in transactions
                 ],
             )
         )
