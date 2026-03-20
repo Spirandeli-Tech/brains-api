@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     firebase_id: str
+    photo_url: str | None = None
     last_login: datetime | None
     created_at: datetime
     role: RoleResponse | None

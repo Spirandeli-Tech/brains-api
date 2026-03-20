@@ -15,6 +15,7 @@ class User(Base):
     last_name = Column(String, nullable=False)
     firebase_id = Column(String, unique=True, index=True, nullable=False)
     role_id = Column(UUID(as_uuid=True), ForeignKey("user_roles.id"), nullable=True)
+    photo_url = Column(String, nullable=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
