@@ -114,9 +114,6 @@ def create_invoice(
         status=data.status,
         total_amount=total_amount,
         notes=data.notes,
-        is_recurrent=data.is_recurrent,
-        recurrence_frequency=data.recurrence_frequency,
-        recurrence_day=data.recurrence_day,
     )
 
     # Retry once if invoice number collides (race condition)
@@ -206,13 +203,10 @@ def update_invoice(
                 invoice_id=invoice.id,
                 service_title=svc["service_title"],
                 service_description=svc.get("service_description"),
-                amount=svc["amount"],
+                amount=svc.get("amount"),
                 sort_order=svc.get("sort_order", idx),
             )
             db.add(service)
-
-        # Recompute total
-        invoice.total_amount = sum(s["amount"] for s in services_data)
 
     db.commit()
     db.refresh(invoice)

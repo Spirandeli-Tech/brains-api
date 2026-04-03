@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -9,19 +9,20 @@ from app.schemas.customer import CustomerRead
 from app.schemas.invoice_service import InvoiceServiceCreate, InvoiceServiceRead
 
 
-VALID_STATUSES = ("draft", "sent", "paid", "void")
+VALID_STATUSES = ("active", "inactive")
 
 
-class InvoiceCreate(BaseModel):
+class ContractCreate(BaseModel):
     customer_id: UUID
-    invoice_number: str | None = None
-    issue_date: date
-    due_date: date
+    name: str
+    status: str = "active"
+    annual_value: Decimal
     currency: str = "USD"
-    status: str = "draft"
+    invoice_day: int = 1
     bank_account_id: UUID | None = None
     services: list[InvoiceServiceCreate]
     notes: str | None = None
+    contract_pdf_url: str | None = None
 
     @field_validator("services")
     @classmethod
@@ -44,25 +45,32 @@ class InvoiceCreate(BaseModel):
             raise ValueError(f"status must be one of {VALID_STATUSES}")
         return v
 
-    @model_validator(mode="after")
-    def due_date_after_issue_date(self) -> "InvoiceCreate":
-        if self.due_date < self.issue_date:
-            raise ValueError("due_date must be on or after issue_date")
-        return self
+    @field_validator("invoice_day")
+    @classmethod
+    def invoice_day_must_be_valid(cls, v: int) -> int:
+        if not (1 <= v <= 31):
+            raise ValueError("invoice_day must be between 1 and 31")
+        return v
+
+    @field_validator("annual_value")
+    @classmethod
+    def annual_value_must_be_positive(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("annual_value must be greater than 0")
+        return v
 
 
-class InvoiceUpdate(BaseModel):
+class ContractUpdate(BaseModel):
     customer_id: UUID | None = None
-    invoice_number: str | None = None
-    issue_date: date | None = None
-    due_date: date | None = None
-    currency: str | None = None
+    name: str | None = None
     status: str | None = None
-    payment_date: date | None = None
+    annual_value: Decimal | None = None
+    currency: str | None = None
+    invoice_day: int | None = None
     bank_account_id: UUID | None = None
     services: list[InvoiceServiceCreate] | None = None
     notes: str | None = None
-    total_amount: Decimal | None = None
+    contract_pdf_url: str | None = None
 
     @field_validator("services")
     @classmethod
@@ -87,21 +95,33 @@ class InvoiceUpdate(BaseModel):
             raise ValueError(f"status must be one of {VALID_STATUSES}")
         return v
 
+    @field_validator("invoice_day")
+    @classmethod
+    def invoice_day_must_be_valid(cls, v: int | None) -> int | None:
+        if v is not None and not (1 <= v <= 31):
+            raise ValueError("invoice_day must be between 1 and 31")
+        return v
 
-class InvoiceRead(BaseModel):
+    @field_validator("annual_value")
+    @classmethod
+    def annual_value_must_be_positive(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and v <= 0:
+            raise ValueError("annual_value must be greater than 0")
+        return v
+
+
+class ContractRead(BaseModel):
     id: UUID
-    invoice_number: str
+    name: str
     customer: CustomerRead
     bank_account: BankAccountRead | None
-    issue_date: date
-    due_date: date
-    currency: str
     status: str
-    total_amount: Decimal
+    annual_value: Decimal
+    currency: str
+    invoice_day: int
     services: list[InvoiceServiceRead]
     notes: str | None
-    payment_date: date | None
-    contract_id: UUID | None
+    contract_pdf_url: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -109,17 +129,15 @@ class InvoiceRead(BaseModel):
         from_attributes = True
 
 
-class InvoiceListItem(BaseModel):
+class ContractListItem(BaseModel):
     id: UUID
-    invoice_number: str
+    name: str
     customer: CustomerRead
-    issue_date: date
-    due_date: date
     status: str
-    total_amount: Decimal
+    annual_value: Decimal
     currency: str
-    payment_date: date | None
-    contract_id: UUID | None
+    invoice_day: int
+    created_at: datetime
 
     class Config:
         from_attributes = True

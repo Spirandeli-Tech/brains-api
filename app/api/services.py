@@ -59,7 +59,6 @@ def create_service(
         invoice_id=None,
         service_title=data.service_title,
         service_description=data.service_description,
-        amount=data.amount,
         sort_order=data.sort_order,
     )
     db.add(service)

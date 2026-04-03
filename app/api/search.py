@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.db import get_db
 from app.models.bank_account import BankAccount
+from app.models.contract import Contract
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.invoice_service import InvoiceService
@@ -48,6 +49,33 @@ def global_search(
                         subtitle=inv.customer.legal_name if inv.customer else None,
                     )
                     for inv in invoices
+                ],
+            )
+        )
+
+    # Contracts — search by name or customer legal_name
+    contracts = (
+        db.query(Contract)
+        .join(Customer, Contract.customer_id == Customer.id)
+        .filter(
+            Contract.created_by_user_id == current_user.id,
+            Contract.name.ilike(pattern) | Customer.legal_name.ilike(pattern),
+        )
+        .order_by(Contract.name)
+        .limit(MAX_RESULTS_PER_CATEGORY)
+        .all()
+    )
+    if contracts:
+        data.append(
+            SearchResultGroup(
+                type="contracts",
+                items=[
+                    SearchResultItem(
+                        id=str(c.id),
+                        title=c.name,
+                        subtitle=c.customer.legal_name if c.customer else None,
+                    )
+                    for c in contracts
                 ],
             )
         )

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, String, Date, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -35,9 +35,10 @@ class Invoice(Base):
     status = Column(String, nullable=False, default="draft")
     total_amount = Column(Numeric(12, 2), nullable=False, default=0)
     notes = Column(Text, nullable=True)
-    is_recurrent = Column(Boolean, nullable=False, default=False)
-    recurrence_frequency = Column(String, nullable=True)
-    recurrence_day = Column(Integer, nullable=True)
+    payment_date = Column(Date, nullable=True)
+    contract_id = Column(
+        UUID(as_uuid=True), ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -48,6 +49,7 @@ class Invoice(Base):
 
     customer = relationship("Customer", back_populates="invoices", lazy="joined")
     bank_account = relationship("BankAccount", lazy="joined")
+    contract = relationship("Contract", lazy="joined")
     services = relationship(
         "InvoiceService",
         back_populates="invoice",
