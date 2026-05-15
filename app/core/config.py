@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     FIREBASE_SERVICE_ACCOUNT_PATH: str = ""
     CORS_ORIGINS: str = "http://localhost:5173"
+    ENCRYPTION_KEY: str = ""
 
     class Config:
         env_file = ".env"

@@ -1,0 +1,152 @@
+import asyncio
+import logging
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from app.core.encryption import decrypt_value
+from app.models.productivity_commit import ProductivityCommit
+from app.models.productivity_connection import ProductivityConnection
+from app.models.productivity_pull_request import ProductivityPullRequest
+from app.services.bitbucket_provider import BitbucketProvider
+from app.services.github_provider import GitHubProvider
+
+logger = logging.getLogger(__name__)
+
+
+def _get_provider(connection: ProductivityConnection):
+    pat = decrypt_value(connection.pat_encrypted)
+
+    if connection.provider == "github":
+        return GitHubProvider(
+            pat=pat,
+            username=connection.username,
+            org=connection.workspace,
+        )
+    elif connection.provider == "bitbucket":
+        return BitbucketProvider(
+            pat=pat,
+            username=connection.username,
+            workspace=connection.workspace,
+            external_account_id=connection.external_account_id,
+        )
+    else:
+        raise ValueError(f"Unknown provider: {connection.provider}")
+
+
+def sync_connection(connection_id: UUID, db: Session) -> dict:
+    connection = db.query(ProductivityConnection).filter(
+        ProductivityConnection.id == connection_id
+    ).first()
+
+    if not connection:
+        raise ValueError("Connection not found")
+
+    provider = _get_provider(connection)
+
+    # Backfill external_account_id on older Bitbucket connections so the
+    # commit-author filter can stop relying on fragile nickname matching.
+    if connection.provider == "bitbucket" and not connection.external_account_id:
+        try:
+            info = asyncio.run(provider.get_current_user())
+        except Exception as e:
+            logger.warning(
+                f"Bitbucket /user lookup failed for connection {connection_id}: {e}"
+            )
+            info = None
+        if info and info.get("account_id"):
+            connection.external_account_id = info["account_id"]
+            provider.external_account_id = info["account_id"]
+            db.commit()
+
+    # Make since timezone-aware (UTC) to match provider datetimes
+    since = connection.last_synced_at
+    if since and since.tzinfo is None:
+        from datetime import timezone
+        since = since.replace(tzinfo=timezone.utc)
+
+    errors: list[str] = []
+    total_commits = 0
+    total_prs = 0
+
+    if connection.selected_repos:
+        repos = connection.selected_repos
+    else:
+        try:
+            repos = asyncio.run(provider.list_repositories())
+        except Exception as e:
+            logger.error(f"Failed to list repos for connection {connection_id}: {e}")
+            return {
+                "connection_id": connection_id,
+                "commits_synced": 0,
+                "prs_synced": 0,
+                "errors": [f"Failed to list repositories: {str(e)}"],
+            }
+
+    for repo in repos:
+        try:
+            commits_data = asyncio.run(provider.fetch_commits(repo, since))
+            for c in commits_data:
+                stmt = pg_insert(ProductivityCommit).values(
+                    connection_id=connection_id,
+                    hash=c["hash"],
+                    short_hash=c["short_hash"],
+                    message=c["message"],
+                    author=c["author"],
+                    date=c["date"],
+                    additions=c["additions"],
+                    deletions=c["deletions"],
+                    repository=c["repository"],
+                    is_merge=c.get("is_merge", False),
+                ).on_conflict_do_nothing(
+                    constraint="uq_commit_connection_hash_repo"
+                )
+                result = db.execute(stmt)
+                if result.rowcount > 0:
+                    total_commits += 1
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Failed to fetch commits for {repo}: {e}")
+            errors.append(f"Commits error for {repo}: {str(e)}")
+
+        try:
+            prs_data = asyncio.run(provider.fetch_pull_requests(repo, since))
+            for pr in prs_data:
+                stmt = pg_insert(ProductivityPullRequest).values(
+                    connection_id=connection_id,
+                    number=pr["number"],
+                    title=pr["title"],
+                    status=pr["status"],
+                    repository=pr["repository"],
+                    url=pr["url"],
+                    created_at_remote=pr["created_at_remote"],
+                    merged_at=pr.get("merged_at"),
+                ).on_conflict_do_update(
+                    constraint="uq_pr_connection_number_repo",
+                    set_={
+                        "status": pr["status"],
+                        "title": pr["title"],
+                        "merged_at": pr.get("merged_at"),
+                    },
+                )
+                result = db.execute(stmt)
+                if result.rowcount > 0:
+                    total_prs += 1
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Failed to fetch PRs for {repo}: {e}")
+            errors.append(f"PRs error for {repo}: {str(e)}")
+
+    if not errors:
+        connection.last_synced_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "connection_id": connection_id,
+        "commits_synced": total_commits,
+        "prs_synced": total_prs,
+        "errors": errors,
+    }

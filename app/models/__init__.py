@@ -12,6 +12,11 @@ from app.models.transaction_category import TransactionCategory
 from app.models.transaction import Transaction
 from app.models.recurring_task import RecurringTask
 from app.models.task_execution import TaskExecution
+from app.models.productivity_connection import ProductivityConnection
+from app.models.productivity_commit import ProductivityCommit
+from app.models.productivity_pull_request import ProductivityPullRequest
+from app.models.local_commit import LocalCommit
+from app.models.user_git_email import UserGitEmail
 from app.core.db import Base
 
 __all__ = [
@@ -29,5 +34,10 @@ __all__ = [
     "Transaction",
     "RecurringTask",
     "TaskExecution",
+    "ProductivityConnection",
+    "ProductivityCommit",
+    "ProductivityPullRequest",
+    "LocalCommit",
+    "UserGitEmail",
     "Base",
 ]

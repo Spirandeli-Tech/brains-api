@@ -22,6 +22,9 @@ from app.models.contract import Contract  # noqa: F401
 from app.models.contract_service import ContractService  # noqa: F401
 from app.models.recurring_task import RecurringTask  # noqa: F401
 from app.models.task_execution import TaskExecution  # noqa: F401
+from app.models.productivity_connection import ProductivityConnection  # noqa: F401
+from app.models.productivity_commit import ProductivityCommit  # noqa: F401
+from app.models.productivity_pull_request import ProductivityPullRequest  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

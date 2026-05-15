@@ -11,6 +11,7 @@ from app.api.search import router as search_router
 from app.api.transaction_categories import router as transaction_categories_router
 from app.api.transactions import router as transactions_router
 from app.api.contracts import router as contracts_router
+from app.api.productivity import router as productivity_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -37,3 +38,4 @@ app.include_router(search_router)
 app.include_router(transaction_categories_router)
 app.include_router(transactions_router)
 app.include_router(contracts_router)
+app.include_router(productivity_router)
