@@ -259,6 +259,16 @@ class GitHubProvider:
                 "additions": stats.get("additions", 0),
                 "deletions": stats.get("deletions", 0),
             }
+        # Rate-limit / abuse-detection: stop the whole sync instead of
+        # silently filling stats with zeros and burning the remaining quota.
+        if resp.status_code in (403, 429):
+            remaining = resp.headers.get("X-RateLimit-Remaining")
+            reset = resp.headers.get("X-RateLimit-Reset")
+            raise GitHubAccessError(
+                resp.status_code,
+                f"GitHub rate limit hit while fetching commit detail "
+                f"({repo}@{sha[:7]}); remaining={remaining}, reset_epoch={reset}",
+            )
         return {"additions": 0, "deletions": 0}
 
     async def fetch_user_activity(
@@ -379,6 +389,14 @@ class GitHubProvider:
                     headers=self.headers,
                     params=params,
                 )
+                if resp.status_code in (403, 429):
+                    remaining = resp.headers.get("X-RateLimit-Remaining")
+                    reset = resp.headers.get("X-RateLimit-Reset")
+                    raise GitHubAccessError(
+                        resp.status_code,
+                        f"GitHub rate limit hit while listing PRs for {repo}; "
+                        f"remaining={remaining}, reset_epoch={reset}",
+                    )
                 if resp.status_code != 200:
                     break
 

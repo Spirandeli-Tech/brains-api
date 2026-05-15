@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -12,9 +12,39 @@ from app.models.productivity_commit import ProductivityCommit
 from app.models.productivity_connection import ProductivityConnection
 from app.models.productivity_pull_request import ProductivityPullRequest
 from app.services.bitbucket_provider import BitbucketProvider
-from app.services.github_provider import GitHubProvider
+from app.services.github_provider import GitHubAccessError, GitHubProvider
 
 logger = logging.getLogger(__name__)
+
+# Cap the first-time backfill so a NULL last_synced_at doesn't trigger a
+# full-history crawl that hits GitHub rate limits and holds DB locks for
+# 20+ minutes. Subsequent syncs use the connection's last_synced_at.
+DEFAULT_BACKFILL_DAYS = 7
+
+# Process-local guard against stampedes when the same connection is synced
+# concurrently (e.g. user double-clicks Sync). Worker-local — fine for the
+# single-uvicorn-worker setup; if we ever scale horizontally this needs to
+# move to Postgres advisory locks.
+_in_flight: set[UUID] = set()
+_in_flight_lock = threading.Lock()
+
+
+def is_sync_in_flight(connection_id: UUID) -> bool:
+    with _in_flight_lock:
+        return connection_id in _in_flight
+
+
+def _claim_sync(connection_id: UUID) -> bool:
+    with _in_flight_lock:
+        if connection_id in _in_flight:
+            return False
+        _in_flight.add(connection_id)
+        return True
+
+
+def _release_sync(connection_id: UUID) -> None:
+    with _in_flight_lock:
+        _in_flight.discard(connection_id)
 
 
 def _get_provider(connection: ProductivityConnection):
@@ -47,8 +77,6 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
 
     provider = _get_provider(connection)
 
-    # Backfill external_account_id on older Bitbucket connections so the
-    # commit-author filter can stop relying on fragile nickname matching.
     if connection.provider == "bitbucket" and not connection.external_account_id:
         try:
             info = asyncio.run(provider.get_current_user())
@@ -62,15 +90,20 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             provider.external_account_id = info["account_id"]
             db.commit()
 
-    # Make since timezone-aware (UTC) to match provider datetimes
     since = connection.last_synced_at
     if since and since.tzinfo is None:
-        from datetime import timezone
         since = since.replace(tzinfo=timezone.utc)
+    if since is None:
+        since = datetime.now(timezone.utc) - timedelta(days=DEFAULT_BACKFILL_DAYS)
+        logger.info(
+            f"Connection {connection_id} has no last_synced_at; "
+            f"bounding initial backfill to {DEFAULT_BACKFILL_DAYS} days"
+        )
 
     errors: list[str] = []
     total_commits = 0
     total_prs = 0
+    rate_limited = False
 
     if connection.selected_repos:
         repos = connection.selected_repos
@@ -81,12 +114,17 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             logger.error(f"Failed to list repos for connection {connection_id}: {e}")
             return {
                 "connection_id": connection_id,
+                "status": "completed",
                 "commits_synced": 0,
                 "prs_synced": 0,
                 "errors": [f"Failed to list repositories: {str(e)}"],
             }
 
     for repo in repos:
+        if rate_limited:
+            errors.append(f"Skipped {repo}: GitHub rate limit reached")
+            continue
+
         try:
             commits_data = asyncio.run(provider.fetch_commits(repo, since))
             for c in commits_data:
@@ -107,6 +145,14 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
                 result = db.execute(stmt)
                 if result.rowcount > 0:
                     total_commits += 1
+            db.commit()
+        except GitHubAccessError as e:
+            db.rollback()
+            logger.warning(f"GitHub access error fetching commits for {repo}: {e}")
+            errors.append(f"Commits error for {repo}: {e.message}")
+            if e.status in (403, 429):
+                rate_limited = True
+                continue
         except Exception as e:
             db.rollback()
             logger.warning(f"Failed to fetch commits for {repo}: {e}")
@@ -135,6 +181,14 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
                 result = db.execute(stmt)
                 if result.rowcount > 0:
                     total_prs += 1
+            db.commit()
+        except GitHubAccessError as e:
+            db.rollback()
+            logger.warning(f"GitHub access error fetching PRs for {repo}: {e}")
+            errors.append(f"PRs error for {repo}: {e.message}")
+            if e.status in (403, 429):
+                rate_limited = True
+                continue
         except Exception as e:
             db.rollback()
             logger.warning(f"Failed to fetch PRs for {repo}: {e}")
@@ -142,10 +196,11 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
 
     if not errors:
         connection.last_synced_at = datetime.utcnow()
-    db.commit()
+        db.commit()
 
     return {
         "connection_id": connection_id,
+        "status": "completed",
         "commits_synced": total_commits,
         "prs_synced": total_prs,
         "errors": errors,

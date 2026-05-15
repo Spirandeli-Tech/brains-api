@@ -1,8 +1,11 @@
 import asyncio
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func
@@ -37,7 +40,12 @@ from app.schemas.productivity import (
 )
 from app.services.bitbucket_provider import BitbucketProvider
 from app.services.github_provider import GitHubAccessError, GitHubProvider
-from app.services.productivity_sync import sync_connection
+from app.services.productivity_sync import (
+    _claim_sync,
+    _release_sync,
+    is_sync_in_flight,
+    sync_connection,
+)
 
 router = APIRouter(prefix="/productivity", tags=["productivity"])
 
@@ -57,10 +65,12 @@ def _sync_in_background(connection_id: UUID) -> None:
         ).first()
         if conn:
             sync_connection(connection_id, db)
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Background sync failed for connection {connection_id}: {e}")
         db.rollback()
     finally:
         db.close()
+        _release_sync(connection_id)
 
 
 def _to_connection_read(conn: ProductivityConnection) -> dict:
@@ -530,7 +540,8 @@ def create_connection(
         )
     db.refresh(conn)
 
-    background_tasks.add_task(_sync_in_background, conn.id)
+    if _claim_sync(conn.id):
+        background_tasks.add_task(_sync_in_background, conn.id)
 
     return _to_connection_read(conn)
 
@@ -647,9 +658,14 @@ def delete_connection(
 # --- Sync ---
 
 
-@router.post("/connections/{connection_id}/sync", response_model=SyncResult)
+@router.post(
+    "/connections/{connection_id}/sync",
+    response_model=SyncResult,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def trigger_sync(
     connection_id: UUID,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -664,8 +680,11 @@ def trigger_sync(
     if not conn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
-    result = sync_connection(connection_id, db)
-    return result
+    if not _claim_sync(connection_id):
+        return SyncResult(connection_id=connection_id, status="in_progress")
+
+    background_tasks.add_task(_sync_in_background, connection_id)
+    return SyncResult(connection_id=connection_id, status="started")
 
 
 # --- Commits & PRs ---

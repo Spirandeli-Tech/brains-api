@@ -149,9 +149,10 @@ class AggregatedStats(BaseModel):
 
 class SyncResult(BaseModel):
     connection_id: UUID
-    commits_synced: int
-    prs_synced: int
-    errors: list[str]
+    status: str  # "started" | "in_progress" | "completed"
+    commits_synced: int = 0
+    prs_synced: int = 0
+    errors: list[str] = []
 
 
 class UserActivityRepo(BaseModel):
