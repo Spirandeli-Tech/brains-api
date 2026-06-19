@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     FIREBASE_SERVICE_ACCOUNT_PATH: str = ""
     CORS_ORIGINS: str = "http://localhost:5173"
     ENCRYPTION_KEY: str = ""
+    # Shared secret the host-side implementation runner presents (X-Runner-Token)
+    # to claim runs and patch status. Empty disables the runner endpoints.
+    RUNNER_TOKEN: str = ""
 
     class Config:
         env_file = ".env"

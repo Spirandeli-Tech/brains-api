@@ -17,6 +17,8 @@ from app.models.productivity_commit import ProductivityCommit
 from app.models.productivity_pull_request import ProductivityPullRequest
 from app.models.local_commit import LocalCommit
 from app.models.user_git_email import UserGitEmail
+from app.models.implementation_run import ImplementationRun
+from app.models.implementation_step import ImplementationStep
 from app.core.db import Base
 
 __all__ = [
@@ -39,5 +41,7 @@ __all__ = [
     "ProductivityPullRequest",
     "LocalCommit",
     "UserGitEmail",
+    "ImplementationRun",
+    "ImplementationStep",
     "Base",
 ]

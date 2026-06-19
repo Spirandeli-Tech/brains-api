@@ -90,16 +90,6 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             provider.external_account_id = info["account_id"]
             db.commit()
 
-    since = connection.last_synced_at
-    if since and since.tzinfo is None:
-        since = since.replace(tzinfo=timezone.utc)
-    if since is None:
-        since = datetime.now(timezone.utc) - timedelta(days=DEFAULT_BACKFILL_DAYS)
-        logger.info(
-            f"Connection {connection_id} has no last_synced_at; "
-            f"bounding initial backfill to {DEFAULT_BACKFILL_DAYS} days"
-        )
-
     errors: list[str] = []
     total_commits = 0
     total_prs = 0
@@ -120,10 +110,45 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
                 "errors": [f"Failed to list repositories: {str(e)}"],
             }
 
+    # Per-repo sync watermarks. A repo that has never been synced (no watermark
+    # and no commits in the DB) gets a bounded backfill, so a repo added long
+    # after the connection still picks up its recent history instead of being
+    # silently bounded to the connection's last_synced_at.
+    watermarks = dict(connection.repo_synced_at or {})
+    existing_repos = {
+        row[0]
+        for row in db.query(ProductivityCommit.repository)
+        .filter(ProductivityCommit.connection_id == connection_id)
+        .distinct()
+        .all()
+    }
+    conn_last_synced = connection.last_synced_at
+    if conn_last_synced and conn_last_synced.tzinfo is None:
+        conn_last_synced = conn_last_synced.replace(tzinfo=timezone.utc)
+
+    def _since_for(repo: str) -> datetime:
+        raw = watermarks.get(repo)
+        if raw:
+            dt = datetime.fromisoformat(raw)
+            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        # Already-synced repo from before per-repo tracking existed: keep using
+        # the connection watermark so we don't needlessly re-crawl it.
+        if repo in existing_repos and conn_last_synced:
+            return conn_last_synced
+        # Brand-new repo: bounded backfill instead of a full-history crawl.
+        logger.info(
+            f"Connection {connection_id} repo {repo} has no watermark; "
+            f"bounding backfill to {DEFAULT_BACKFILL_DAYS} days"
+        )
+        return datetime.now(timezone.utc) - timedelta(days=DEFAULT_BACKFILL_DAYS)
+
     for repo in repos:
         if rate_limited:
             errors.append(f"Skipped {repo}: GitHub rate limit reached")
             continue
+
+        since = _since_for(repo)
+        repo_errored = False
 
         try:
             commits_data = asyncio.run(provider.fetch_commits(repo, since))
@@ -148,6 +173,7 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             db.commit()
         except GitHubAccessError as e:
             db.rollback()
+            repo_errored = True
             logger.warning(f"GitHub access error fetching commits for {repo}: {e}")
             errors.append(f"Commits error for {repo}: {e.message}")
             if e.status in (403, 429):
@@ -155,6 +181,7 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
                 continue
         except Exception as e:
             db.rollback()
+            repo_errored = True
             logger.warning(f"Failed to fetch commits for {repo}: {e}")
             errors.append(f"Commits error for {repo}: {str(e)}")
 
@@ -184,6 +211,7 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             db.commit()
         except GitHubAccessError as e:
             db.rollback()
+            repo_errored = True
             logger.warning(f"GitHub access error fetching PRs for {repo}: {e}")
             errors.append(f"PRs error for {repo}: {e.message}")
             if e.status in (403, 429):
@@ -191,8 +219,22 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
                 continue
         except Exception as e:
             db.rollback()
+            repo_errored = True
             logger.warning(f"Failed to fetch PRs for {repo}: {e}")
             errors.append(f"PRs error for {repo}: {str(e)}")
+
+        # Advance the per-repo watermark only when the repo synced cleanly, so a
+        # partial/errored repo is retried (inserts are idempotent) next run.
+        if not repo_errored:
+            watermarks[repo] = datetime.now(timezone.utc).isoformat()
+            connection.repo_synced_at = dict(watermarks)
+            db.commit()
+
+    # Drop watermarks for repos no longer tracked so the map can't grow unbounded.
+    pruned = {r: ts for r, ts in watermarks.items() if r in set(repos)}
+    if pruned != (connection.repo_synced_at or {}):
+        connection.repo_synced_at = pruned
+        db.commit()
 
     if not errors:
         connection.last_synced_at = datetime.utcnow()

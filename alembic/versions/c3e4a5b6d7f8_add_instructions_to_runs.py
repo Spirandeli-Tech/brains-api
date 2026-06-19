@@ -1,0 +1,28 @@
+"""add_instructions_to_runs
+
+Revision ID: c3e4a5b6d7f8
+Revises: b2d3f4a5c6e7
+Create Date: 2026-06-19 02:00:00.000000
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision: str = 'c3e4a5b6d7f8'
+down_revision: Union[str, None] = 'b2d3f4a5c6e7'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        'implementation_runs',
+        sa.Column('instructions', sa.Text(), nullable=True),
+    )
+
+
+def downgrade() -> None:
+    op.drop_column('implementation_runs', 'instructions')

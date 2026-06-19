@@ -10,6 +10,35 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.github.com"
 GRAPHQL_URL = "https://api.github.com/graphql"
 
+# Sentinel for "author id not resolved yet" so we can cache a genuine None result.
+_UNSET = object()
+
+# Pulls commit history with additions/deletions inline, so we no longer pay one
+# extra REST request per commit for stats (the old per-commit crawl exhausted the
+# GitHub rate limit and caused later repos in a sync to be skipped entirely).
+COMMIT_HISTORY_QUERY = """
+query($owner: String!, $name: String!, $expr: String!, $since: GitTimestamp, $cursor: String, $author: CommitAuthor) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $expr) {
+      ... on Commit {
+        history(first: 100, since: $since, after: $cursor, author: $author) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            oid
+            messageHeadline
+            committedDate
+            additions
+            deletions
+            author { name user { login } }
+            parents { totalCount }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 
 class GitHubAccessError(Exception):
     def __init__(self, status: int, message: str, sso_url: str | None = None):
@@ -61,6 +90,7 @@ class GitHubProvider:
         self.pat = pat
         self.username = username
         self.org = org
+        self._author_id = _UNSET
         self.headers = {
             "Authorization": f"token {pat}",
             "Accept": "application/vnd.github.v3+json",
@@ -186,90 +216,123 @@ class GitHubProvider:
                 page += 1
         return branches
 
+    async def _graphql(
+        self, client: httpx.AsyncClient, query: str, variables: dict
+    ) -> dict:
+        resp = await client.post(
+            GRAPHQL_URL,
+            headers={**self.headers, "Content-Type": "application/json"},
+            json={"query": query, "variables": variables},
+        )
+        # Primary/secondary rate limits surface as HTTP 403/429; stop the sync
+        # cleanly so the caller can mark the connection rate-limited.
+        if resp.status_code in (403, 429):
+            remaining = resp.headers.get("X-RateLimit-Remaining")
+            reset = resp.headers.get("X-RateLimit-Reset")
+            raise GitHubAccessError(
+                resp.status_code,
+                f"GitHub GraphQL rate limit hit; "
+                f"remaining={remaining}, reset_epoch={reset}",
+            )
+        resp.raise_for_status()
+        payload = resp.json()
+        # GraphQL can also report exhaustion as a 200 with a RATE_LIMITED error.
+        for err in payload.get("errors") or []:
+            if err.get("type") == "RATE_LIMITED":
+                raise GitHubAccessError(
+                    403, f"GitHub GraphQL rate limited: {err.get('message')}"
+                )
+        return payload
+
+    async def _resolve_author_id(self, client: httpx.AsyncClient) -> str | None:
+        """Resolve the GraphQL node id for self.username once, so commit history
+        can be filtered server-side by author. Falls back to None (client-side
+        login matching) if it can't be resolved."""
+        if self._author_id is not _UNSET:
+            return self._author_id
+        try:
+            payload = await self._graphql(
+                client,
+                "query($login: String!) { user(login: $login) { id } }",
+                {"login": self.username},
+            )
+            user = (payload.get("data") or {}).get("user") or {}
+            self._author_id = user.get("id")
+        except GitHubAccessError:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not resolve author id for {self.username}: {e}")
+            self._author_id = None
+        return self._author_id
+
     async def fetch_commits(
         self, repo: str, since: datetime | None = None
     ) -> list[dict]:
+        owner, _, name = repo.partition("/")
         commits: list[dict] = []
         seen: set[str] = set()
         branches = await self.list_branches(repo)
         if not branches:
             branches = [""]
 
-        async with httpx.AsyncClient() as client:
+        since_iso = since.isoformat() if since else None
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            author_id = await self._resolve_author_id(client)
+            author_filter = {"id": author_id} if author_id else None
+
             for branch in branches:
-                params: dict = {"per_page": 100, "author": self.username}
-                if branch:
-                    params["sha"] = branch
-                if since:
-                    params["since"] = since.isoformat()
-
-                page = 1
+                expr = branch if branch else "HEAD"
+                cursor: str | None = None
                 while True:
-                    params["page"] = page
-                    resp = await client.get(
-                        f"{BASE_URL}/repos/{repo}/commits",
-                        headers=self.headers,
-                        params=params,
+                    payload = await self._graphql(
+                        client,
+                        COMMIT_HISTORY_QUERY,
+                        {
+                            "owner": owner,
+                            "name": name,
+                            "expr": expr,
+                            "since": since_iso,
+                            "cursor": cursor,
+                            "author": author_filter,
+                        },
                     )
-                    if resp.status_code != 200:
-                        logger.warning(
-                            f"GitHub fetch commits failed for {repo}@{branch or 'default'}: "
-                            f"{resp.status_code}"
-                        )
+                    obj = ((payload.get("data") or {}).get("repository") or {}).get("object")
+                    if not obj:
                         break
+                    history = obj.get("history") or {}
+                    nodes = history.get("nodes") or []
 
-                    data = resp.json()
-                    if not data:
-                        break
-
-                    for item in data:
-                        sha = item["sha"]
+                    for node in nodes:
+                        sha = node["oid"]
                         if sha in seen:
                             continue
+                        # Without a resolved author id we filter client-side by login.
+                        if not author_id:
+                            login = ((node.get("author") or {}).get("user") or {}).get("login")
+                            if login != self.username:
+                                continue
                         seen.add(sha)
-                        commit_detail = await self._get_commit_detail(client, repo, sha)
+                        parent_count = (node.get("parents") or {}).get("totalCount", 0)
+                        headline = node.get("messageHeadline") or ""
                         commits.append({
                             "hash": sha,
                             "short_hash": sha[:7],
-                            "message": item["commit"]["message"].split("\n")[0],
-                            "author": item["commit"]["author"]["name"],
-                            "date": item["commit"]["author"]["date"],
-                            "additions": commit_detail.get("additions", 0),
-                            "deletions": commit_detail.get("deletions", 0),
+                            "message": headline.split("\n")[0],
+                            "author": (node.get("author") or {}).get("name") or self.username,
+                            "date": node["committedDate"],
+                            "additions": node.get("additions", 0),
+                            "deletions": node.get("deletions", 0),
                             "repository": repo,
-                            "is_merge": is_merge_commit(
-                                item.get("parents"), item["commit"].get("message")
-                            ),
+                            "is_merge": is_merge_commit([None] * parent_count, headline),
                         })
-                    page += 1
+
+                    page_info = history.get("pageInfo") or {}
+                    if not page_info.get("hasNextPage"):
+                        break
+                    cursor = page_info.get("endCursor")
 
         return commits
-
-    async def _get_commit_detail(
-        self, client: httpx.AsyncClient, repo: str, sha: str
-    ) -> dict:
-        resp = await client.get(
-            f"{BASE_URL}/repos/{repo}/commits/{sha}",
-            headers=self.headers,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            stats = data.get("stats", {})
-            return {
-                "additions": stats.get("additions", 0),
-                "deletions": stats.get("deletions", 0),
-            }
-        # Rate-limit / abuse-detection: stop the whole sync instead of
-        # silently filling stats with zeros and burning the remaining quota.
-        if resp.status_code in (403, 429):
-            remaining = resp.headers.get("X-RateLimit-Remaining")
-            reset = resp.headers.get("X-RateLimit-Reset")
-            raise GitHubAccessError(
-                resp.status_code,
-                f"GitHub rate limit hit while fetching commit detail "
-                f"({repo}@{sha[:7]}); remaining={remaining}, reset_epoch={reset}",
-            )
-        return {"additions": 0, "deletions": 0}
 
     async def fetch_user_activity(
         self, date_from: datetime, date_to: datetime

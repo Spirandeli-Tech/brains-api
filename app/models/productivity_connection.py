@@ -40,6 +40,10 @@ class ProductivityConnection(Base):
     selected_repos = Column(JSONB, nullable=True, default=list)
     is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
     last_synced_at = Column(DateTime, nullable=True)
+    # Per-repository sync watermark: {repo_full_name: ISO-8601 timestamp}. Lets a
+    # newly-added repo get its own backfill instead of inheriting the connection's
+    # last_synced_at (which would skip everything committed before the repo was added).
+    repo_synced_at = Column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
