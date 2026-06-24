@@ -43,9 +43,14 @@ class ImplementationRun(Base):
     ticket_summary = Column(String, nullable=True)
     # Free-text guidance the user gives the agent at launch time.
     instructions = Column(Text, nullable=True)
+    # Iteration notes appended mid-run (e.g. before approving open_pr).
+    iteration_notes = Column(Text, nullable=True)
 
     # queued | running | awaiting_approval | done | failed | cancelled
     status = Column(String, nullable=False, default="queued", server_default="queued")
+
+    repo_name = Column(String, nullable=True)
+    base_branch = Column(String, nullable=True)
 
     worktree_path = Column(String, nullable=True)
     branch = Column(String, nullable=True)

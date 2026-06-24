@@ -17,6 +17,7 @@ from app.models.implementation_step import ImplementationStep
 # Canonical catalog of steps, in execution order. `sensitive` steps pause for
 # user approval. Mirrors web/src/lib/clients/implementations/constants.ts (§6).
 STEP_CATALOG: list[dict] = [
+    {"kind": "enrich_ticket", "sensitive": False},
     {"kind": "move_to_progress", "sensitive": False},
     {"kind": "implement", "sensitive": False},
     {"kind": "open_pr", "sensitive": True},
@@ -31,6 +32,11 @@ _KIND_SENSITIVE = {entry["kind"]: entry["sensitive"] for entry in STEP_CATALOG}
 
 ACTIVE_RUN_STATUSES = ("queued", "running", "awaiting_approval")
 TERMINAL_RUN_STATUSES = ("done", "failed", "cancelled")
+
+# In-memory registry: connection_name → [{name, base_branch}, ...].
+# Populated by the runner on startup via PUT /runner/repos.
+# Acceptable for a local single-runner setup; re-populated on runner restart.
+_runner_repos: dict[str, list[dict]] = {}
 
 
 def ticket_key_from_url(url: str) -> str | None:
@@ -50,6 +56,9 @@ def to_run_read(run: ImplementationRun) -> dict:
         "ticket_key": run.ticket_key,
         "ticket_summary": run.ticket_summary,
         "instructions": run.instructions,
+        "iteration_notes": run.iteration_notes,
+        "repo_name": run.repo_name,
+        "base_branch": run.base_branch,
         "status": run.status,
         "worktree_path": run.worktree_path,
         "branch": run.branch,
@@ -76,6 +85,14 @@ def to_run_read(run: ImplementationRun) -> dict:
 # --- User-facing operations ---
 
 
+def get_repos_for_connection(connection_name: str) -> list[dict]:
+    return _runner_repos.get(connection_name, [])
+
+
+def register_repos(connection_name: str, repos: list[dict]) -> None:
+    _runner_repos[connection_name] = repos
+
+
 def launch_run(
     db: Session,
     user_id: UUID,
@@ -83,6 +100,8 @@ def launch_run(
     ticket_url: str,
     steps: list[str],
     instructions: str | None = None,
+    repo_name: str | None = None,
+    base_branch: str | None = None,
 ) -> ImplementationRun:
     # Keep canonical execution order regardless of the order steps arrived in.
     ordered = sorted(set(steps), key=lambda k: _KIND_ORDER.get(k, 999))
@@ -93,6 +112,8 @@ def launch_run(
         ticket_url=ticket_url,
         ticket_key=ticket_key_from_url(ticket_url),
         instructions=(instructions.strip() if instructions and instructions.strip() else None),
+        repo_name=repo_name or None,
+        base_branch=base_branch or None,
         status="queued",
     )
     db.add(run)
@@ -143,6 +164,49 @@ def approve_step(db: Session, run: ImplementationRun, step_id: UUID) -> Implemen
     step.approved = True
     step.status = "pending"
     # Hand back to the runner: the run is runnable again.
+    run.status = "queued"
+    run.claimed_by = None
+    run.claimed_at = None
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def iterate_step(db: Session, run: ImplementationRun, step_id: UUID, notes: str) -> ImplementationRun:
+    """Request another implement pass before the paused open_pr is approved.
+
+    Appends `notes` to the run's iteration_notes, then resets the `implement`
+    step back to pending and re-queues the run. The `open_pr` step is also reset
+    so the runner will regenerate its preview after the new iteration.
+    """
+    step = next((s for s in run.steps if s.id == step_id), None)
+    if step is None:
+        raise ValueError("Step not found")
+    if step.kind != "open_pr":
+        raise ValueError("iterate is only supported on the open_pr step")
+    if step.status != "awaiting_approval":
+        raise ValueError("Step is not awaiting approval")
+
+    # Accumulate notes (separator if there were previous rounds).
+    existing = (run.iteration_notes or "").strip()
+    run.iteration_notes = f"{existing}\n\n---\n{notes}".strip() if existing else notes
+
+    # Reset the implement step so the runner runs it again with the new notes.
+    implement_step = next((s for s in run.steps if s.kind == "implement"), None)
+    if implement_step:
+        implement_step.status = "pending"
+        implement_step.approved = False
+        implement_step.log = None
+        implement_step.started_at = None
+        implement_step.ended_at = None
+
+    # Reset open_pr so the runner re-generates the preview after the new implement.
+    step.status = "pending"
+    step.approved = False
+    step.log = None
+    step.started_at = None
+    step.ended_at = None
+
     run.status = "queued"
     run.claimed_by = None
     run.claimed_at = None
@@ -273,7 +337,7 @@ def update_run(
     run: ImplementationRun,
     patch: dict,
 ) -> ImplementationRun:
-    for field in ("status", "worktree_path", "branch", "pr_url", "error"):
+    for field in ("status", "worktree_path", "branch", "pr_url", "error", "ticket_summary"):
         if field in patch and patch[field] is not None:
             setattr(run, field, patch[field])
     if patch.get("status") in TERMINAL_RUN_STATUSES:

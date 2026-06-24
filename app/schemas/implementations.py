@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, field_validator
 
 VALID_STEP_KINDS = (
+    "enrich_ticket",
     "move_to_progress",
     "research",
     "implement",
@@ -41,6 +42,8 @@ class LaunchRunRequest(BaseModel):
     ticket_url: str
     steps: list[str]
     instructions: str | None = None
+    repo_name: str | None = None
+    base_branch: str | None = None
 
     @field_validator("steps")
     @classmethod
@@ -83,6 +86,9 @@ class RunRead(BaseModel):
     ticket_key: str | None
     ticket_summary: str | None
     instructions: str | None
+    iteration_notes: str | None
+    repo_name: str | None
+    base_branch: str | None
     status: str
     worktree_path: str | None
     branch: str | None
@@ -91,6 +97,17 @@ class RunRead(BaseModel):
     steps: list[StepRead]
     created_at: datetime
     updated_at: datetime
+
+
+class RepoInfo(BaseModel):
+    name: str
+    base_branch: str
+
+
+class RegisterReposRequest(BaseModel):
+    """Sent by the runner on startup to register its available repos per connection."""
+    connection_name: str
+    repos: list[RepoInfo]
 
 
 # --- Runner-facing (host execution plane) ---
@@ -118,6 +135,7 @@ class RunUpdate(BaseModel):
     branch: str | None = None
     pr_url: str | None = None
     error: str | None = None
+    ticket_summary: str | None = None
 
     @field_validator("status")
     @classmethod
@@ -135,6 +153,18 @@ class DiscussRequest(BaseModel):
     def message_required(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("message is required")
+        return v.strip()
+
+
+class IterateRequest(BaseModel):
+    """Instructions for another implement pass before the PR is opened."""
+    notes: str
+
+    @field_validator("notes")
+    @classmethod
+    def notes_required(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("notes is required")
         return v.strip()
 
 

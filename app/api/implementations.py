@@ -11,7 +11,10 @@ from app.models.user import User
 from app.schemas.implementations import (
     ClaimRequest,
     DiscussRequest,
+    IterateRequest,
     LaunchRunRequest,
+    RegisterReposRequest,
+    RepoInfo,
     RunRead,
     RunUpdate,
     StepUpdate,
@@ -48,6 +51,8 @@ def launch_run(
         ticket_url=data.ticket_url,
         steps=data.steps,
         instructions=data.instructions,
+        repo_name=data.repo_name,
+        base_branch=data.base_branch,
     )
     return svc.to_run_read(run)
 
@@ -99,6 +104,24 @@ def discuss_step(
     return svc.to_run_read(run)
 
 
+@router.post("/runs/{run_id}/steps/{step_id}/iterate", response_model=RunRead)
+def iterate_step(
+    run_id: UUID,
+    step_id: UUID,
+    data: IterateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    run = svc.get_run(db, run_id)
+    if not run or run.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    try:
+        run = svc.iterate_step(db, run, step_id, data.notes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return svc.to_run_read(run)
+
+
 @router.post("/runs/{run_id}/restart", response_model=RunRead)
 def restart_run(
     run_id: UUID,
@@ -125,6 +148,18 @@ def cancel_run(
     svc.cancel_run(db, run)
 
 
+# --- Connection repos (populated by runner, queried by UI) ---
+
+
+@router.get("/connections/{connection_name}/repos", response_model=list[RepoInfo])
+def get_connection_repos(
+    connection_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return the repos the runner registered for a given connection name."""
+    return svc.get_repos_for_connection(connection_name)
+
+
 # --- Runner-facing endpoints (execution plane) ---
 
 
@@ -141,6 +176,15 @@ def require_runner(x_runner_token: str | None = Header(default=None)) -> bool:
             detail="Invalid runner token",
         )
     return True
+
+
+@router.put("/runner/repos", status_code=status.HTTP_204_NO_CONTENT)
+def runner_register_repos(
+    data: RegisterReposRequest,
+    _: bool = Depends(require_runner),
+):
+    """Runner calls this on startup to register its available repos per connection."""
+    svc.register_repos(data.connection_name, [r.model_dump() for r in data.repos])
 
 
 @router.post("/runner/claim", response_model=RunRead | None)
