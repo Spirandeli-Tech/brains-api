@@ -26,6 +26,8 @@ def _init_models():
     from app.models.transaction import Transaction  # noqa: F401
     from app.models.recurring_task import RecurringTask  # noqa: F401
     from app.models.task_execution import TaskExecution  # noqa: F401
+    from app.models.automation import Automation  # noqa: F401
+    from app.models.automation_run import AutomationRun  # noqa: F401
 
 
 _init_models()
@@ -33,6 +35,7 @@ _init_models()
 from app.core.db import SessionLocal  # noqa: E402
 from app.scheduler.materializer import materialize_pending_executions  # noqa: E402
 from app.scheduler.executor import execute_pending_tasks  # noqa: E402
+from app.scheduler.automation_materializer import materialize_automation_runs  # noqa: E402
 
 INTERVAL_SECONDS = 300  # 5 minutes
 
@@ -42,6 +45,7 @@ def run_cycle() -> None:
     try:
         materialize_pending_executions(db)
         execute_pending_tasks(db)
+        materialize_automation_runs(db)
     except Exception:
         logger.exception("Scheduler cycle failed")
     finally:

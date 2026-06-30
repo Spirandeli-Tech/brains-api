@@ -23,7 +23,7 @@ STEP_CATALOG: list[dict] = [
     {"kind": "open_pr", "sensitive": True},
     {"kind": "code_review", "sensitive": False},
     {"kind": "address_feedback", "sensitive": False},
-    {"kind": "qa_notes", "sensitive": False},
+    {"kind": "qa_notes", "sensitive": True},
     {"kind": "move_card", "sensitive": True},
 ]
 
@@ -173,39 +173,43 @@ def approve_step(db: Session, run: ImplementationRun, step_id: UUID) -> Implemen
 
 
 def iterate_step(db: Session, run: ImplementationRun, step_id: UUID, notes: str) -> ImplementationRun:
-    """Request another implement pass before the paused open_pr is approved.
+    """Request another pass on a paused sensitive step.
 
-    Appends `notes` to the run's iteration_notes, then resets the `implement`
-    step back to pending and re-queues the run. The `open_pr` step is also reset
-    so the runner will regenerate its preview after the new iteration.
+    - open_pr: re-runs the implement step with the new notes, then regenerates the PR preview.
+    - qa_notes: appends developer feedback to the step log so the runner rewrites the comment draft.
     """
     step = next((s for s in run.steps if s.id == step_id), None)
     if step is None:
         raise ValueError("Step not found")
-    if step.kind != "open_pr":
-        raise ValueError("iterate is only supported on the open_pr step")
+    if step.kind not in ("open_pr", "qa_notes"):
+        raise ValueError("iterate is only supported on the open_pr and qa_notes steps")
     if step.status != "awaiting_approval":
         raise ValueError("Step is not awaiting approval")
 
-    # Accumulate notes (separator if there were previous rounds).
-    existing = (run.iteration_notes or "").strip()
-    run.iteration_notes = f"{existing}\n\n---\n{notes}".strip() if existing else notes
+    if step.kind == "qa_notes":
+        # Append feedback to the log; the runner's preview fn will incorporate it on next pass.
+        existing = (step.log or "").strip()
+        step.log = f"{existing}\n\n--- Feedback from developer ---\n{notes}".strip()
+        step.status = "pending"
+        step.approved = False
+    else:
+        # open_pr: accumulate notes and reset implement + open_pr.
+        existing = (run.iteration_notes or "").strip()
+        run.iteration_notes = f"{existing}\n\n---\n{notes}".strip() if existing else notes
 
-    # Reset the implement step so the runner runs it again with the new notes.
-    implement_step = next((s for s in run.steps if s.kind == "implement"), None)
-    if implement_step:
-        implement_step.status = "pending"
-        implement_step.approved = False
-        implement_step.log = None
-        implement_step.started_at = None
-        implement_step.ended_at = None
+        implement_step = next((s for s in run.steps if s.kind == "implement"), None)
+        if implement_step:
+            implement_step.status = "pending"
+            implement_step.approved = False
+            implement_step.log = None
+            implement_step.started_at = None
+            implement_step.ended_at = None
 
-    # Reset open_pr so the runner re-generates the preview after the new implement.
-    step.status = "pending"
-    step.approved = False
-    step.log = None
-    step.started_at = None
-    step.ended_at = None
+        step.status = "pending"
+        step.approved = False
+        step.log = None
+        step.started_at = None
+        step.ended_at = None
 
     run.status = "queued"
     run.claimed_by = None
