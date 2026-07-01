@@ -19,6 +19,8 @@ from app.models.local_commit import LocalCommit
 from app.models.user_git_email import UserGitEmail
 from app.models.implementation_run import ImplementationRun
 from app.models.implementation_step import ImplementationStep
+from app.models.code_review_run import CodeReviewRun
+from app.models.code_review_step import CodeReviewStep
 from app.core.db import Base
 
 __all__ = [
@@ -43,5 +45,7 @@ __all__ = [
     "UserGitEmail",
     "ImplementationRun",
     "ImplementationStep",
+    "CodeReviewRun",
+    "CodeReviewStep",
     "Base",
 ]
