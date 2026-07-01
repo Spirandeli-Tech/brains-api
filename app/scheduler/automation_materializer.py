@@ -1,7 +1,7 @@
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -37,7 +37,10 @@ def materialize_automation_runs(db: Session) -> int:
                     scheduled_for=d,
                     status="pending",
                 )
-                .on_conflict_do_nothing(constraint="uq_automation_run_schedule")
+                .on_conflict_do_nothing(
+                    index_elements=["automation_id", "scheduled_for"],
+                    index_where=text("NOT is_manual"),
+                )
             )
             result = db.execute(stmt)
             if result.rowcount > 0:

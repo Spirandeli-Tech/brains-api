@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, time
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Time, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, Time, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.core.db import Base
@@ -20,11 +20,13 @@ class Automation(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name = Column(String, nullable=False)
     skill = Column(String, nullable=False)
+    instructions = Column(Text, nullable=True)
     connection_name = Column(String, nullable=True)
     work_dir = Column(String, nullable=True)
     frequency = Column(String, nullable=False)
     day_of_week = Column(Integer, nullable=True)
     day_of_month = Column(Integer, nullable=True)
+    days_of_week = Column(JSONB, nullable=True)
     time_of_day = Column(Time, nullable=False, default=time(8, 0))
     enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -34,5 +36,5 @@ class Automation(Base):
         "AutomationRun",
         back_populates="automation",
         cascade="all, delete-orphan",
-        order_by="AutomationRun.scheduled_for.desc()",
+        order_by="AutomationRun.scheduled_for.desc(), AutomationRun.created_at.desc()",
     )

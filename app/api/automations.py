@@ -11,6 +11,7 @@ from app.schemas.automations import (
     AutomationCreate,
     AutomationRead,
     AutomationRunClaim,
+    AutomationRunRead,
     AutomationRunUpdate,
     AutomationUpdate,
     ClaimAutomationRequest,
@@ -45,6 +46,25 @@ def list_automations(
     return svc.list_automations(db, current_user.id)
 
 
+@router.get("/skills", response_model=list[str])
+def list_available_skills(
+    current_user: User = Depends(get_current_user),
+):
+    return svc.list_available_skills()
+
+
+@router.get("/{automation_id}", response_model=AutomationRead)
+def get_automation(
+    automation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    automation = svc.get_automation(db, automation_id)
+    if not automation or automation.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Automation not found")
+    return svc._serialize_automation(automation, recent_runs_limit=10_000)
+
+
 @router.post("", response_model=AutomationRead, status_code=status.HTTP_201_CREATED)
 def create_automation(
     data: AutomationCreate,
@@ -65,6 +85,20 @@ def update_automation(
     if not automation or automation.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Automation not found")
     return svc.update_automation(db, automation, data.model_dump(exclude_unset=True))
+
+
+@router.post("/{automation_id}/run", response_model=AutomationRunRead, status_code=status.HTTP_201_CREATED)
+def run_automation_now(
+    automation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    automation = svc.get_automation(db, automation_id)
+    if not automation or automation.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Automation not found")
+    if not automation.enabled:
+        raise HTTPException(status_code=400, detail="Enable the automation before running it")
+    return svc.trigger_manual_run(db, automation)
 
 
 @router.delete("/{automation_id}", status_code=status.HTTP_204_NO_CONTENT)
