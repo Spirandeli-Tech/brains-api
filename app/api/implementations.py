@@ -52,6 +52,7 @@ def launch_run(
         steps=data.steps,
         instructions=data.instructions,
         repo_name=data.repo_name,
+        repo_names=data.repo_names,
         base_branch=data.base_branch,
     )
     return svc.to_run_read(run)
@@ -195,6 +196,17 @@ def runner_claim(
 ):
     """Atomically claim the next queued run. Returns null when the queue is empty."""
     run = svc.claim_next_run(db, data.runner_id)
+    return svc.to_run_read(run) if run else None
+
+
+@router.post("/runner/claim-cleanup", response_model=RunRead | None)
+def runner_claim_cleanup(
+    data: ClaimRequest,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_runner),
+):
+    """Atomically claim a cancelled run with leftover worktrees to remove."""
+    run = svc.claim_cancelled_for_cleanup(db, data.runner_id)
     return svc.to_run_read(run) if run else None
 
 

@@ -33,6 +33,10 @@ class ImplementationStep(Base):
     # Execution order within the run.
     position = Column(Integer, nullable=False, default=0)
     sensitive = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Which repo this step targets, for multi-repo runs (e.g. Ecointeractive).
+    # Null for ticket-level steps (enrich_ticket, move_to_progress, qa_notes,
+    # move_card) that run once per run regardless of how many repos it touches.
+    repo_name = Column(String, nullable=True)
 
     # pending | running | awaiting_approval | done | failed | skipped
     status = Column(String, nullable=False, default="pending", server_default="pending")

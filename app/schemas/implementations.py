@@ -43,6 +43,9 @@ class LaunchRunRequest(BaseModel):
     steps: list[str]
     instructions: str | None = None
     repo_name: str | None = None
+    # Multiple repos selected for this run (e.g. Ecointeractive tickets that
+    # touch several repos at once). Takes precedence over `repo_name` when set.
+    repo_names: list[str] | None = None
     base_branch: str | None = None
 
     @field_validator("steps")
@@ -70,11 +73,22 @@ class StepRead(BaseModel):
     status: str
     approved: bool
     log: str | None
+    # Which repo this step targets, for multi-repo runs. None = ticket-level step.
+    repo_name: str | None = None
     started_at: datetime | None
     ended_at: datetime | None
 
     class Config:
         from_attributes = True
+
+
+class PrTarget(BaseModel):
+    """One PR opened as part of a cascade run."""
+    repo_name: str
+    stage: str
+    branch: str
+    base_branch: str
+    pr_url: str
 
 
 class RunRead(BaseModel):
@@ -88,7 +102,10 @@ class RunRead(BaseModel):
     instructions: str | None
     iteration_notes: str | None
     repo_name: str | None
+    repo_names: list[str] | None
     base_branch: str | None
+    cascade_stages: list[str] | None
+    pr_targets: list[PrTarget] | None
     status: str
     worktree_path: str | None
     branch: str | None
@@ -136,6 +153,8 @@ class RunUpdate(BaseModel):
     pr_url: str | None = None
     error: str | None = None
     ticket_summary: str | None = None
+    cascade_stages: list[str] | None = None
+    pr_targets: list[PrTarget] | None = None
 
     @field_validator("status")
     @classmethod

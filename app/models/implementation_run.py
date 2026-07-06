@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.core.db import Base
@@ -51,6 +51,16 @@ class ImplementationRun(Base):
 
     repo_name = Column(String, nullable=True)
     base_branch = Column(String, nullable=True)
+    # Multi-repo runs (e.g. Ecointeractive, where one ticket may touch several
+    # repos in the same run): list of repo names selected at launch. When set,
+    # takes precedence over the singular `repo_name` for step generation.
+    repo_names = Column(JSONB, nullable=True)
+    # Cascade runs (Ecointeractive): the environment chain derived from the
+    # ticket's Jira Fix Version, e.g. ["staging", "qa", "development"].
+    cascade_stages = Column(JSONB, nullable=True)
+    # Cascade runs: list of {repo_name, stage, branch, base_branch, pr_url}
+    # accumulated as each stage's PR is opened, across all repos in the run.
+    pr_targets = Column(JSONB, nullable=True, default=list)
 
     worktree_path = Column(String, nullable=True)
     branch = Column(String, nullable=True)

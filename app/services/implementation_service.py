@@ -30,6 +30,11 @@ STEP_CATALOG: list[dict] = [
 _KIND_ORDER = {entry["kind"]: i for i, entry in enumerate(STEP_CATALOG)}
 _KIND_SENSITIVE = {entry["kind"]: entry["sensitive"] for entry in STEP_CATALOG}
 
+# Kinds that operate on a single repo's worktree/branch/PR. For multi-repo runs
+# (e.g. Ecointeractive, where one ticket may touch several repos) these are
+# repeated once per selected repo; everything else runs once for the whole run.
+PER_REPO_KINDS = {"implement", "open_pr", "code_review", "address_feedback"}
+
 ACTIVE_RUN_STATUSES = ("queued", "running", "awaiting_approval")
 TERMINAL_RUN_STATUSES = ("done", "failed", "cancelled")
 
@@ -58,7 +63,10 @@ def to_run_read(run: ImplementationRun) -> dict:
         "instructions": run.instructions,
         "iteration_notes": run.iteration_notes,
         "repo_name": run.repo_name,
+        "repo_names": run.repo_names,
         "base_branch": run.base_branch,
+        "cascade_stages": run.cascade_stages,
+        "pr_targets": run.pr_targets,
         "status": run.status,
         "worktree_path": run.worktree_path,
         "branch": run.branch,
@@ -72,6 +80,7 @@ def to_run_read(run: ImplementationRun) -> dict:
                 "status": s.status,
                 "approved": s.approved,
                 "log": s.log,
+                "repo_name": s.repo_name,
                 "started_at": s.started_at,
                 "ended_at": s.ended_at,
             }
@@ -101,6 +110,7 @@ def launch_run(
     steps: list[str],
     instructions: str | None = None,
     repo_name: str | None = None,
+    repo_names: list[str] | None = None,
     base_branch: str | None = None,
 ) -> ImplementationRun:
     # Keep canonical execution order regardless of the order steps arrived in.
@@ -113,22 +123,38 @@ def launch_run(
         ticket_key=ticket_key_from_url(ticket_url),
         instructions=(instructions.strip() if instructions and instructions.strip() else None),
         repo_name=repo_name or None,
+        repo_names=repo_names or None,
         base_branch=base_branch or None,
         status="queued",
     )
     db.add(run)
     db.flush()  # assign run.id
 
-    for position, kind in enumerate(ordered):
-        db.add(
-            ImplementationStep(
-                run_id=run.id,
-                kind=kind,
-                position=position,
-                sensitive=_KIND_SENSITIVE.get(kind, False),
-                status="pending",
+    # Repo-scoped kinds (implement, open_pr, code_review, address_feedback) repeat
+    # once per selected repo, in repo order; everything else runs once for the run.
+    # Falls back to the singular repo_name when repo_names wasn't sent (every
+    # non-multi-repo org, e.g. Beon/Cloudwork with several repos each) — without
+    # this, those steps would get repo_name=None and the runner would silently
+    # resolve to whichever repo happens to be first in that org's config.
+    single_repo_target = [repo_name] if repo_name else [None]
+    position = 0
+    for kind in ordered:
+        if kind in PER_REPO_KINDS:
+            targets = repo_names or single_repo_target
+        else:
+            targets = [None]
+        for target_repo in targets:
+            db.add(
+                ImplementationStep(
+                    run_id=run.id,
+                    kind=kind,
+                    position=position,
+                    sensitive=_KIND_SENSITIVE.get(kind, False),
+                    status="pending",
+                    repo_name=target_repo,
+                )
             )
-        )
+            position += 1
 
     db.commit()
     db.refresh(run)
@@ -305,6 +331,35 @@ def claim_next_run(db: Session, runner_id: str) -> ImplementationRun | None:
     return run
 
 
+def claim_cancelled_for_cleanup(db: Session, runner_id: str) -> ImplementationRun | None:
+    """Atomically claim a cancelled run that may still have leftover git
+    worktrees, so the runner can remove them.
+
+    Cancelling a run only flips its status — it doesn't (and can't, from the
+    control plane) touch the host's git worktrees. `worktree_path` being set
+    is our signal that a worktree was created for this run at some point; we
+    clear it immediately (mirroring claim_next_run's SKIP LOCKED pattern) so
+    concurrent runners never race to sweep the same run twice.
+    """
+    stmt = (
+        select(ImplementationRun)
+        .where(ImplementationRun.status == "cancelled")
+        .where(ImplementationRun.worktree_path.isnot(None))
+        .order_by(ImplementationRun.updated_at.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .options(lazyload(ImplementationRun.connection))
+    )
+    run = db.execute(stmt).scalars().first()
+    if run is None:
+        return None
+
+    run.worktree_path = None
+    db.commit()
+    db.refresh(run)
+    return run
+
+
 def update_step(
     db: Session,
     run: ImplementationRun,
@@ -341,7 +396,10 @@ def update_run(
     run: ImplementationRun,
     patch: dict,
 ) -> ImplementationRun:
-    for field in ("status", "worktree_path", "branch", "pr_url", "error", "ticket_summary"):
+    for field in (
+        "status", "worktree_path", "branch", "pr_url", "error", "ticket_summary",
+        "cascade_stages", "pr_targets",
+    ):
         if field in patch and patch[field] is not None:
             setattr(run, field, patch[field])
     if patch.get("status") in TERMINAL_RUN_STATUSES:
