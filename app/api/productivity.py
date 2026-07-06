@@ -68,6 +68,14 @@ def _sync_in_background(connection_id: UUID) -> None:
     except Exception as e:
         logger.exception(f"Background sync failed for connection {connection_id}: {e}")
         db.rollback()
+        conn = db.query(ProductivityConnection).filter(
+            ProductivityConnection.id == connection_id
+        ).first()
+        if conn:
+            conn.last_sync_attempted_at = datetime.utcnow()
+            conn.last_sync_status = "error"
+            conn.last_sync_error = str(e)
+            db.commit()
     finally:
         db.close()
         _release_sync(connection_id)
@@ -87,6 +95,9 @@ def _to_connection_read(conn: ProductivityConnection) -> dict:
         "selected_repos": conn.selected_repos,
         "is_primary": conn.is_primary,
         "last_synced_at": conn.last_synced_at,
+        "last_sync_attempted_at": conn.last_sync_attempted_at,
+        "last_sync_status": conn.last_sync_status,
+        "last_sync_error": conn.last_sync_error,
         "created_at": conn.created_at,
         "updated_at": conn.updated_at,
     }

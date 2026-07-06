@@ -93,7 +93,10 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
     errors: list[str] = []
     total_commits = 0
     total_prs = 0
-    rate_limited = False
+    # Set once an error affects the whole connection rather than one repo (rate
+    # limit or an invalid/expired token) so we don't re-fail identically against
+    # every remaining repo.
+    abort_reason: str | None = None
 
     if connection.selected_repos:
         repos = connection.selected_repos
@@ -102,12 +105,17 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             repos = asyncio.run(provider.list_repositories())
         except Exception as e:
             logger.error(f"Failed to list repos for connection {connection_id}: {e}")
+            error_msg = f"Failed to list repositories: {str(e)}"
+            connection.last_sync_attempted_at = datetime.utcnow()
+            connection.last_sync_status = "error"
+            connection.last_sync_error = error_msg
+            db.commit()
             return {
                 "connection_id": connection_id,
                 "status": "completed",
                 "commits_synced": 0,
                 "prs_synced": 0,
-                "errors": [f"Failed to list repositories: {str(e)}"],
+                "errors": [error_msg],
             }
 
     # Per-repo sync watermarks. A repo that has never been synced (no watermark
@@ -143,8 +151,8 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
         return datetime.now(timezone.utc) - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
     for repo in repos:
-        if rate_limited:
-            errors.append(f"Skipped {repo}: GitHub rate limit reached")
+        if abort_reason:
+            errors.append(f"Skipped {repo}: {abort_reason}")
             continue
 
         since = _since_for(repo)
@@ -176,8 +184,8 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             repo_errored = True
             logger.warning(f"GitHub access error fetching commits for {repo}: {e}")
             errors.append(f"Commits error for {repo}: {e.message}")
-            if e.status in (403, 429):
-                rate_limited = True
+            if e.status in (401, 403, 429):
+                abort_reason = e.message
                 continue
         except Exception as e:
             db.rollback()
@@ -214,8 +222,8 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             repo_errored = True
             logger.warning(f"GitHub access error fetching PRs for {repo}: {e}")
             errors.append(f"PRs error for {repo}: {e.message}")
-            if e.status in (403, 429):
-                rate_limited = True
+            if e.status in (401, 403, 429):
+                abort_reason = e.message
                 continue
         except Exception as e:
             db.rollback()
@@ -236,9 +244,15 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
         connection.repo_synced_at = pruned
         db.commit()
 
-    if not errors:
-        connection.last_synced_at = datetime.utcnow()
-        db.commit()
+    connection.last_sync_attempted_at = datetime.utcnow()
+    if errors:
+        connection.last_sync_status = "error"
+        connection.last_sync_error = "; ".join(errors)
+    else:
+        connection.last_synced_at = connection.last_sync_attempted_at
+        connection.last_sync_status = "success"
+        connection.last_sync_error = None
+    db.commit()
 
     return {
         "connection_id": connection_id,

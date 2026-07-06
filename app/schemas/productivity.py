@@ -78,6 +78,9 @@ class ConnectionRead(BaseModel):
     selected_repos: list[str] | None
     is_primary: bool
     last_synced_at: datetime | None
+    last_sync_attempted_at: datetime | None
+    last_sync_status: str | None
+    last_sync_error: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -95,6 +98,9 @@ class ConnectionListItem(BaseModel):
     selected_repos: list[str] | None
     is_primary: bool
     last_synced_at: datetime | None
+    last_sync_attempted_at: datetime | None
+    last_sync_status: str | None
+    last_sync_error: str | None
     created_at: datetime
 
     class Config:

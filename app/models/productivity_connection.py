@@ -40,6 +40,12 @@ class ProductivityConnection(Base):
     selected_repos = Column(JSONB, nullable=True, default=list)
     is_primary = Column(Boolean, nullable=False, default=False, server_default="false")
     last_synced_at = Column(DateTime, nullable=True)
+    # Updated on every sync attempt regardless of outcome, so the frontend can
+    # detect "sync finished" even when it ended in error (last_synced_at only
+    # advances on a clean run).
+    last_sync_attempted_at = Column(DateTime, nullable=True)
+    last_sync_status = Column(String, nullable=True)  # "success" or "error"
+    last_sync_error = Column(Text, nullable=True)
     # Per-repository sync watermark: {repo_full_name: ISO-8601 timestamp}. Lets a
     # newly-added repo get its own backfill instead of inheriting the connection's
     # last_synced_at (which would skip everything committed before the repo was added).

@@ -234,6 +234,12 @@ class GitHubProvider:
                 f"GitHub GraphQL rate limit hit; "
                 f"remaining={remaining}, reset_epoch={reset}",
             )
+        if resp.status_code == 401:
+            raise GitHubAccessError(
+                401,
+                "GitHub rejected the token (401 Unauthorized). "
+                "The personal access token is likely expired or revoked.",
+            )
         resp.raise_for_status()
         payload = resp.json()
         # GraphQL can also report exhaustion as a 200 with a RATE_LIMITED error.
@@ -459,6 +465,12 @@ class GitHubProvider:
                         resp.status_code,
                         f"GitHub rate limit hit while listing PRs for {repo}; "
                         f"remaining={remaining}, reset_epoch={reset}",
+                    )
+                if resp.status_code == 401:
+                    raise GitHubAccessError(
+                        401,
+                        "GitHub rejected the token (401 Unauthorized) while listing"
+                        f" PRs for {repo}. The token is likely expired or revoked.",
                     )
                 if resp.status_code != 200:
                     break
