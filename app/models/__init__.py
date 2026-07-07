@@ -21,6 +21,8 @@ from app.models.implementation_run import ImplementationRun
 from app.models.implementation_step import ImplementationStep
 from app.models.code_review_run import CodeReviewRun
 from app.models.code_review_step import CodeReviewStep
+from app.models.address_pr_run import AddressPrRun
+from app.models.address_pr_step import AddressPrStep
 from app.core.db import Base
 
 __all__ = [
@@ -47,5 +49,7 @@ __all__ = [
     "ImplementationStep",
     "CodeReviewRun",
     "CodeReviewStep",
+    "AddressPrRun",
+    "AddressPrStep",
     "Base",
 ]
