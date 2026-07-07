@@ -77,6 +77,8 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
 
     provider = _get_provider(connection)
 
+    errors: list[str] = []
+
     if connection.provider == "bitbucket" and not connection.external_account_id:
         try:
             info = asyncio.run(provider.get_current_user())
@@ -89,8 +91,26 @@ def sync_connection(connection_id: UUID, db: Session) -> dict:
             connection.external_account_id = info["account_id"]
             provider.external_account_id = info["account_id"]
             db.commit()
+        else:
+            # Without account_id, _is_self_author falls back to matching
+            # nickname/username/display_name against `connection.username` —
+            # which for API-token connections is the login email, and Bitbucket
+            # never puts an email in those fields. That fallback silently
+            # matches nothing, so every commit/PR gets filtered out and the
+            # sync would otherwise report "success" with zero results forever,
+            # with no clue why. Surface it instead of hiding it.
+            logger.warning(
+                f"Bitbucket connection {connection_id} has no external_account_id "
+                "(likely missing the 'Account: Read' / read:user:bitbucket scope) — "
+                "commits/PRs can't be matched to this user."
+            )
+            errors.append(
+                "Couldn't resolve your Bitbucket account id — the API token is "
+                "missing the 'Account: Read' scope (read:user:bitbucket), so "
+                "commits/PRs can't be matched to you and nothing will sync. "
+                "Recreate the token with that scope at id.atlassian.com and sync again."
+            )
 
-    errors: list[str] = []
     total_commits = 0
     total_prs = 0
     # Set once an error affects the whole connection rather than one repo (rate

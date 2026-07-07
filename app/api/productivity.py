@@ -143,16 +143,25 @@ def _resolve_bitbucket_account(pat: str, username: str) -> str:
             ),
         )
     claimed = (username or "").strip().lower()
-    nickname = (info.get("nickname") or "").lower()
-    legacy_username = (info.get("username") or "").lower()
-    if claimed and claimed not in {nickname, legacy_username}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"The PAT belongs to '{info.get('nickname') or info.get('display_name')}', "
-                f"not '{username}'. Reconnect with the correct username."
-            ),
-        )
+    # Atlassian API tokens authenticate as `email:token` — Bitbucket itself
+    # already verifies that pairing at the HTTP layer, so a wrong email with
+    # someone else's token simply fails to authenticate (`info` would be None
+    # above). The nickname/legacy-username string comparison below only
+    # applies to the older app-password flow, where `username` was the actual
+    # Bitbucket handle rather than an email — for that flow Bitbucket's auth
+    # doesn't check username/token ownership, so this app-level check is the
+    # only thing that catches "PAT belongs to a different account".
+    if "@" not in claimed:
+        nickname = (info.get("nickname") or "").lower()
+        legacy_username = (info.get("username") or "").lower()
+        if claimed and claimed not in {nickname, legacy_username}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The PAT belongs to '{info.get('nickname') or info.get('display_name')}', "
+                    f"not '{username}'. Reconnect with the correct username."
+                ),
+            )
     return info["account_id"]
 
 

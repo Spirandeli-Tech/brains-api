@@ -36,13 +36,20 @@ class BitbucketProvider:
         self.external_account_id = external_account_id
 
     async def validate_token(self) -> bool:
+        """Confirm the PAT/username combo authenticates successfully.
+
+        Bitbucket deprecated every cross-workspace listing endpoint for
+        API-token auth (CHANGE-2770) — `/repositories?role=member` and bare
+        `/workspaces`/`/repositories` all now return 410 regardless of PAT
+        validity, which used to make this always report "invalid" even for
+        a working token. `/user` doesn't have that problem: a 401 means the
+        credentials themselves are wrong, while a 403 here means Bitbucket
+        authenticated the request but is enforcing a scope restriction on
+        it — i.e. the credentials ARE valid, per plain HTTP semantics.
+        """
         async with httpx.AsyncClient(**self._client_kwargs()) as client:
-            # Use /repositories with role=member — only needs read:repository scope
-            resp = await client.get(
-                f"{BASE_URL}/repositories",
-                params={"pagelen": 1, "role": "member"},
-            )
-            return resp.status_code == 200
+            resp = await client.get(f"{BASE_URL}/user")
+            return resp.status_code in (200, 403)
 
     def _client_kwargs(self) -> dict:
         return {"auth": httpx.BasicAuth(self.username, self.pat)}
@@ -127,32 +134,11 @@ class BitbucketProvider:
 
         return repos
 
-    async def list_branches(self, repo: str) -> list[str]:
-        branches: list[str] = []
-        url: str | None = f"{BASE_URL}/repositories/{repo}/refs/branches"
-        params: dict = {"pagelen": 100}
-
-        async with httpx.AsyncClient(**self._client_kwargs()) as client:
-            while url:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    logger.warning(
-                        f"Bitbucket list branches failed for {repo}: {resp.status_code}"
-                    )
-                    break
-                data = resp.json()
-                for b in data.get("values", []):
-                    name = b.get("name")
-                    if name:
-                        branches.append(name)
-                url = data.get("next")
-                params = {}
-
-        return branches
-
-    def _is_self_author(self, item: dict) -> bool:
-        author_raw = item.get("author", {})
-        author_user = author_raw.get("user", {}) or {}
+    def _is_self_author(self, author_user: dict) -> bool:
+        """`author_user` is the Bitbucket user object — nickname/username/
+        display_name/account_id. Shape differs by endpoint: commits nest it
+        under `author.user`, pull requests put it directly on `author` — the
+        caller resolves that before calling this."""
         # Prefer account_id (stable, unambiguous) when the connection has it.
         if self.external_account_id:
             return author_user.get("account_id") == self.external_account_id
@@ -165,78 +151,96 @@ class BitbucketProvider:
         }
         return self.username in {c for c in candidates if c}
 
+    async def _get_main_branch(self, client: httpx.AsyncClient, repo: str) -> str | None:
+        resp = await client.get(f"{BASE_URL}/repositories/{repo}")
+        if resp.status_code != 200:
+            return None
+        return (resp.json().get("mainbranch") or {}).get("name")
+
     async def fetch_commits(
         self, repo: str, since: datetime | None = None
     ) -> list[dict]:
+        """Crawl the repo's main branch only.
+
+        Bitbucket has no server-side author/date filter for commits (unlike
+        the GitHub provider's GraphQL query), so every branch scanned here
+        costs a full paginated commits crawl plus a diffstat call per
+        matched commit. Real repos routinely carry 100+ stale per-ticket
+        branches (a `refs/branches?pagelen=1` probe on one repo in this
+        codebase reported 196) — iterating all of them, as this used to do,
+        multiplies that cost per branch and was the actual cause of syncs
+        that appeared to hang. Once a branch merges, its commits reach the
+        main branch anyway (same hash unless squashed), so scoping to just
+        the main branch is both far cheaper and a more accurate picture of
+        shipped work than counting commits still stuck on abandoned branches.
+        """
         commits: list[dict] = []
         seen: set[str] = set()
-        branches = await self.list_branches(repo)
-        if not branches:
-            branches = [""]
 
         async with httpx.AsyncClient(**self._client_kwargs()) as client:
-            for branch in branches:
-                if branch:
-                    url: str | None = f"{BASE_URL}/repositories/{repo}/commits/{branch}"
-                else:
-                    url = f"{BASE_URL}/repositories/{repo}/commits"
+            branch = await self._get_main_branch(client, repo)
+            url: str | None = (
+                f"{BASE_URL}/repositories/{repo}/commits/{branch}"
+                if branch
+                else f"{BASE_URL}/repositories/{repo}/commits"
+            )
 
-                stop = False
-                params: dict = {"pagelen": 100}
-                while url:
-                    resp = await client.get(url, params=params)
-                    if resp.status_code != 200:
-                        logger.warning(
-                            f"Bitbucket fetch commits failed for {repo}@{branch or 'default'}: "
-                            f"{resp.status_code}"
-                        )
+            stop = False
+            params: dict = {"pagelen": 100}
+            while url:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"Bitbucket fetch commits failed for {repo}@{branch or 'default'}: "
+                        f"{resp.status_code}"
+                    )
+                    break
+
+                data = resp.json()
+
+                for item in data.get("values", []):
+                    commit_date = datetime.fromisoformat(
+                        item["date"].replace("Z", "+00:00")
+                    )
+                    if since and commit_date < since:
+                        stop = True
                         break
 
-                    data = resp.json()
+                    author_raw = item.get("author", {})
+                    author_user = author_raw.get("user", {}) or {}
+                    if not self._is_self_author(author_user):
+                        continue
 
-                    for item in data.get("values", []):
-                        commit_date = datetime.fromisoformat(
-                            item["date"].replace("Z", "+00:00")
-                        )
-                        if since and commit_date < since:
-                            stop = True
-                            break
+                    sha = item["hash"]
+                    if sha in seen:
+                        continue
+                    seen.add(sha)
 
-                        if not self._is_self_author(item):
-                            continue
+                    author_name = (
+                        author_user.get("display_name")
+                        or author_raw.get("raw", "unknown").split("<")[0].strip()
+                    )
 
-                        sha = item["hash"]
-                        if sha in seen:
-                            continue
-                        seen.add(sha)
+                    diffstat = await self._get_diffstat(client, repo, sha)
 
-                        author_raw = item.get("author", {})
-                        author_user = author_raw.get("user", {}) or {}
-                        author_name = (
-                            author_user.get("display_name")
-                            or author_raw.get("raw", "unknown").split("<")[0].strip()
-                        )
+                    commits.append({
+                        "hash": sha,
+                        "short_hash": sha[:7],
+                        "message": item.get("message", "").split("\n")[0],
+                        "author": author_name,
+                        "date": item["date"],
+                        "additions": diffstat["additions"],
+                        "deletions": diffstat["deletions"],
+                        "repository": repo,
+                        "is_merge": is_merge_commit(
+                            item.get("parents"), item.get("message")
+                        ),
+                    })
 
-                        diffstat = await self._get_diffstat(client, repo, sha)
-
-                        commits.append({
-                            "hash": sha,
-                            "short_hash": sha[:7],
-                            "message": item.get("message", "").split("\n")[0],
-                            "author": author_name,
-                            "date": item["date"],
-                            "additions": diffstat["additions"],
-                            "deletions": diffstat["deletions"],
-                            "repository": repo,
-                            "is_merge": is_merge_commit(
-                                item.get("parents"), item.get("message")
-                            ),
-                        })
-
-                    if stop:
-                        break
-                    url = data.get("next")
-                    params = {}
+                if stop:
+                    break
+                url = data.get("next")
+                params = {}
 
         return commits
 
@@ -266,9 +270,13 @@ class BitbucketProvider:
     ) -> list[dict]:
         prs: list[dict] = []
         url: str | None = f"{BASE_URL}/repositories/{repo}/pullrequests"
-        params: dict = {"pagelen": 50, "state": "MERGED,OPEN,DECLINED"}
+        # Sort newest-first so the `since` cutoff below can stop paging early —
+        # without it, this walked the repo's ENTIRE pull request history on
+        # every sync (no early exit existed at all).
+        params: dict = {"pagelen": 50, "state": "MERGED,OPEN,DECLINED", "sort": "-created_on"}
 
         async with httpx.AsyncClient(**self._client_kwargs()) as client:
+            stop = False
             while url:
                 resp = await client.get(url, params=params)
                 if resp.status_code != 200:
@@ -276,14 +284,14 @@ class BitbucketProvider:
 
                 data = resp.json()
                 for item in data.get("values", []):
-                    author = item.get("author", {})
-                    if author.get("username") != self.username and author.get("nickname") != self.username:
-                        continue
-
                     created_at = datetime.fromisoformat(
                         item["created_on"].replace("Z", "+00:00")
                     )
                     if since and created_at < since:
+                        stop = True
+                        break
+
+                    if not self._is_self_author(item.get("author", {}) or {}):
                         continue
 
                     status_map = {
