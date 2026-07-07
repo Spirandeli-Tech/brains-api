@@ -6,6 +6,16 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class RepoInfo(BaseModel):
+    name: str
+    base_branch: str
+
+
+class ConnectionInfo(BaseModel):
+    name: str
+    repos: list[RepoInfo]
+
+
 class AutomationRunRead(BaseModel):
     id: UUID
     scheduled_for: date
@@ -29,7 +39,7 @@ class AutomationRead(BaseModel):
     skill: str
     instructions: str | None
     connection_name: str | None
-    work_dir: str | None
+    repo_name: str | None
     frequency: str
     day_of_week: int | None
     day_of_month: int | None
@@ -49,7 +59,7 @@ class AutomationCreate(BaseModel):
     skill: str
     instructions: str | None = None
     connection_name: str | None = None
-    work_dir: str | None = None
+    repo_name: str | None = None
     frequency: str
     day_of_week: int | None = None
     day_of_month: int | None = None
@@ -62,7 +72,7 @@ class AutomationUpdate(BaseModel):
     skill: str | None = None
     instructions: str | None = None
     connection_name: str | None = None
-    work_dir: str | None = None
+    repo_name: str | None = None
     frequency: str | None = None
     day_of_week: int | None = None
     day_of_month: int | None = None
@@ -81,7 +91,7 @@ class AutomationRunClaim(BaseModel):
     skill: str
     instructions: str | None
     connection_name: str | None
-    work_dir: str | None
+    repo_name: str | None
     scheduled_for: date
 
     class Config:

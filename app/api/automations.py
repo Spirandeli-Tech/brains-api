@@ -15,6 +15,7 @@ from app.schemas.automations import (
     AutomationRunUpdate,
     AutomationUpdate,
     ClaimAutomationRequest,
+    ConnectionInfo,
 )
 from app.services import automation_service as svc
 
@@ -51,6 +52,14 @@ def list_available_skills(
     current_user: User = Depends(get_current_user),
 ):
     return svc.list_available_skills()
+
+
+@router.get("/connections", response_model=list[ConnectionInfo])
+def list_available_connections(
+    current_user: User = Depends(get_current_user),
+):
+    """Orgs the runner has registered from its local config.json, with their repos."""
+    return svc.list_available_connections()
 
 
 @router.get("/{automation_id}", response_model=AutomationRead)

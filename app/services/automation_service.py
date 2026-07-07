@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.automation import Automation
 from app.models.automation_run import AutomationRun
+from app.services import connection_registry
 
 
 def _parse_time(time_str: str | None) -> time:
@@ -46,7 +47,7 @@ def _serialize_automation(automation: Automation, recent_runs_limit: int = 5) ->
         "skill": automation.skill,
         "instructions": automation.instructions,
         "connection_name": automation.connection_name,
-        "work_dir": automation.work_dir,
+        "repo_name": automation.repo_name,
         "frequency": automation.frequency,
         "day_of_week": automation.day_of_week,
         "day_of_month": automation.day_of_month,
@@ -57,6 +58,11 @@ def _serialize_automation(automation: Automation, recent_runs_limit: int = 5) ->
         "updated_at": automation.updated_at,
         "recent_runs": [_serialize_run(r) for r in runs],
     }
+
+
+def list_available_connections() -> list[dict]:
+    """Orgs (and their repos) the runner has registered from its local config.json."""
+    return connection_registry.list_connections()
 
 
 def list_available_skills() -> list[str]:
@@ -93,7 +99,7 @@ def create_automation(db: Session, user_id: UUID, data: dict) -> dict:
         skill=data["skill"],
         instructions=data.get("instructions"),
         connection_name=data.get("connection_name"),
-        work_dir=data.get("work_dir"),
+        repo_name=data.get("repo_name"),
         frequency=data["frequency"],
         day_of_week=data.get("day_of_week"),
         day_of_month=data.get("day_of_month"),
@@ -112,7 +118,7 @@ def get_automation(db: Session, automation_id: UUID) -> Automation | None:
 
 
 def update_automation(db: Session, automation: Automation, data: dict) -> dict:
-    for field in ("name", "skill", "instructions", "connection_name", "work_dir", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled"):
+    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled"):
         if field in data and data[field] is not None:
             setattr(automation, field, data[field])
     if "enabled" in data and data["enabled"] is not None:
@@ -178,7 +184,7 @@ def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
         "skill": automation.skill,
         "instructions": automation.instructions,
         "connection_name": automation.connection_name,
-        "work_dir": automation.work_dir,
+        "repo_name": automation.repo_name,
         "scheduled_for": run.scheduled_for,
     }
 

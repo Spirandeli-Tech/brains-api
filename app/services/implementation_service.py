@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.models.implementation_run import ImplementationRun
 from app.models.implementation_step import ImplementationStep
+from app.services import connection_registry
 
 # Canonical catalog of steps, in execution order. `sensitive` steps pause for
 # user approval. Mirrors web/src/lib/clients/implementations/constants.ts (§6).
@@ -37,11 +38,6 @@ PER_REPO_KINDS = {"implement", "open_pr", "code_review", "address_feedback"}
 
 ACTIVE_RUN_STATUSES = ("queued", "running", "awaiting_approval")
 TERMINAL_RUN_STATUSES = ("done", "failed", "cancelled")
-
-# In-memory registry: connection_name → [{name, base_branch}, ...].
-# Populated by the runner on startup via PUT /runner/repos.
-# Acceptable for a local single-runner setup; re-populated on runner restart.
-_runner_repos: dict[str, list[dict]] = {}
 
 
 def ticket_key_from_url(url: str) -> str | None:
@@ -95,11 +91,11 @@ def to_run_read(run: ImplementationRun) -> dict:
 
 
 def get_repos_for_connection(connection_name: str) -> list[dict]:
-    return _runner_repos.get(connection_name, [])
+    return connection_registry.get_repos_for_connection(connection_name)
 
 
 def register_repos(connection_name: str, repos: list[dict]) -> None:
-    _runner_repos[connection_name] = repos
+    connection_registry.register_repos(connection_name, repos)
 
 
 def launch_run(

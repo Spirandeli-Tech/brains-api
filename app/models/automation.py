@@ -22,7 +22,7 @@ class Automation(Base):
     skill = Column(String, nullable=False)
     instructions = Column(Text, nullable=True)
     connection_name = Column(String, nullable=True)
-    work_dir = Column(String, nullable=True)
+    repo_name = Column(String, nullable=True)
     frequency = Column(String, nullable=False)
     day_of_week = Column(Integer, nullable=True)
     day_of_month = Column(Integer, nullable=True)
