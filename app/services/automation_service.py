@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -152,15 +152,19 @@ def trigger_manual_run(db: Session, automation: Automation) -> dict:
 def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
     now = datetime.utcnow()
     # scheduled_for (date) + time_of_day (UTC clock time) is a native Postgres
-    # timestamp addition. Manual "Run now" runs bypass the gate entirely.
+    # timestamp addition. Manual "Run now" runs bypass both the time gate and
+    # the enabled gate: disabling an automation only stops it from firing on
+    # its own schedule, it doesn't block runs the user explicitly queued.
     due = text("automation_runs.scheduled_for + automations.time_of_day <= :now")
     stmt = (
         select(AutomationRun)
         .join(Automation)
         .where(
             AutomationRun.status == "pending",
-            Automation.enabled.is_(True),
-            or_(AutomationRun.is_manual.is_(True), due),
+            or_(
+                AutomationRun.is_manual.is_(True),
+                and_(Automation.enabled.is_(True), due),
+            ),
         )
         .params(now=now)
         .order_by(AutomationRun.scheduled_for.asc(), AutomationRun.created_at.asc())

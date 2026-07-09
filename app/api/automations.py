@@ -105,8 +105,6 @@ def run_automation_now(
     automation = svc.get_automation(db, automation_id)
     if not automation or automation.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Automation not found")
-    if not automation.enabled:
-        raise HTTPException(status_code=400, detail="Enable the automation before running it")
     return svc.trigger_manual_run(db, automation)
 
 
