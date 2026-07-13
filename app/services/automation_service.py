@@ -48,6 +48,7 @@ def _serialize_automation(automation: Automation, recent_runs_limit: int = 5) ->
         "instructions": automation.instructions,
         "connection_name": automation.connection_name,
         "repo_name": automation.repo_name,
+        "claude_model": automation.claude_model,
         "frequency": automation.frequency,
         "day_of_week": automation.day_of_week,
         "day_of_month": automation.day_of_month,
@@ -100,6 +101,7 @@ def create_automation(db: Session, user_id: UUID, data: dict) -> dict:
         instructions=data.get("instructions"),
         connection_name=data.get("connection_name"),
         repo_name=data.get("repo_name"),
+        claude_model=data.get("claude_model"),
         frequency=data["frequency"],
         day_of_week=data.get("day_of_week"),
         day_of_month=data.get("day_of_month"),
@@ -118,7 +120,7 @@ def get_automation(db: Session, automation_id: UUID) -> Automation | None:
 
 
 def update_automation(db: Session, automation: Automation, data: dict) -> dict:
-    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled"):
+    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "claude_model", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled"):
         if field in data and data[field] is not None:
             setattr(automation, field, data[field])
     if "enabled" in data and data["enabled"] is not None:
@@ -189,6 +191,7 @@ def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
         "instructions": automation.instructions,
         "connection_name": automation.connection_name,
         "repo_name": automation.repo_name,
+        "claude_model": automation.claude_model,
         "scheduled_for": run.scheduled_for,
     }
 

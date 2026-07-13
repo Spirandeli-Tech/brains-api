@@ -47,6 +47,7 @@ def to_run_read(run: CodeReviewRun) -> dict:
         "repo_name": run.repo_name,
         "ticket_key": run.ticket_key,
         "instructions": run.instructions,
+        "claude_model": run.claude_model,
         "status": run.status,
         "review_action": run.review_action,
         "review_plan": run.review_plan,
@@ -80,6 +81,7 @@ def launch_run(
     repo_name: str | None = None,
     ticket_key: str | None = None,
     instructions: str | None = None,
+    claude_model: str | None = None,
 ) -> CodeReviewRun:
     derived_pr_number = pr_number_from_url(pr_url)
     derived_ticket_key = ticket_key or ticket_key_from_url(pr_url)
@@ -92,6 +94,7 @@ def launch_run(
         repo_name=repo_name or None,
         ticket_key=derived_ticket_key,
         instructions=(instructions.strip() if instructions and instructions.strip() else None),
+        claude_model=claude_model or None,
         status="queued",
     )
     db.add(run)

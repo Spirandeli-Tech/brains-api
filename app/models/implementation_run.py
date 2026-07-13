@@ -43,6 +43,8 @@ class ImplementationRun(Base):
     ticket_summary = Column(String, nullable=True)
     # Free-text guidance the user gives the agent at launch time.
     instructions = Column(Text, nullable=True)
+    # Claude model for this run's steps, e.g. "haiku". Null = runner default (sonnet).
+    claude_model = Column(String, nullable=True)
     # Iteration notes appended mid-run (e.g. before approving open_pr).
     iteration_notes = Column(Text, nullable=True)
 

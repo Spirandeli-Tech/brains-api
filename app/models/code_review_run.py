@@ -41,6 +41,8 @@ class CodeReviewRun(Base):
     ticket_key = Column(String, nullable=True)
     # Optional focus instructions for the review (e.g. "focus on performance").
     instructions = Column(Text, nullable=True)
+    # Claude model for this run's steps, e.g. "haiku". Null = runner default (sonnet).
+    claude_model = Column(String, nullable=True)
 
     # queued | running | awaiting_approval | done | failed | cancelled
     status = Column(String, nullable=False, default="queued", server_default="queued")

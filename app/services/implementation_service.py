@@ -58,6 +58,7 @@ def to_run_read(run: ImplementationRun) -> dict:
         "ticket_summary": run.ticket_summary,
         "instructions": run.instructions,
         "iteration_notes": run.iteration_notes,
+        "claude_model": run.claude_model,
         "repo_name": run.repo_name,
         "repo_names": run.repo_names,
         "base_branch": run.base_branch,
@@ -108,6 +109,7 @@ def launch_run(
     repo_name: str | None = None,
     repo_names: list[str] | None = None,
     base_branch: str | None = None,
+    claude_model: str | None = None,
 ) -> ImplementationRun:
     # Keep canonical execution order regardless of the order steps arrived in.
     ordered = sorted(set(steps), key=lambda k: _KIND_ORDER.get(k, 999))
@@ -121,6 +123,7 @@ def launch_run(
         repo_name=repo_name or None,
         repo_names=repo_names or None,
         base_branch=base_branch or None,
+        claude_model=claude_model or None,
         status="queued",
     )
     db.add(run)

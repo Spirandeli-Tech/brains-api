@@ -51,6 +51,7 @@ def to_run_read(run: AddressPrRun) -> dict:
         "repo_name": run.repo_name,
         "ticket_key": run.ticket_key,
         "instructions": run.instructions,
+        "claude_model": run.claude_model,
         "status": run.status,
         "worktree_path": run.worktree_path,
         "branch": run.branch,
@@ -85,6 +86,7 @@ def launch_run(
     repo_name: str | None = None,
     ticket_key: str | None = None,
     instructions: str | None = None,
+    claude_model: str | None = None,
 ) -> AddressPrRun:
     derived_pr_number = pr_number_from_url(pr_url)
     derived_ticket_key = ticket_key or ticket_key_from_url(pr_url)
@@ -97,6 +99,7 @@ def launch_run(
         repo_name=repo_name or None,
         ticket_key=derived_ticket_key,
         instructions=(instructions.strip() if instructions and instructions.strip() else None),
+        claude_model=claude_model or None,
         status="queued",
     )
     db.add(run)

@@ -47,6 +47,7 @@ class LaunchRunRequest(BaseModel):
     # touch several repos at once). Takes precedence over `repo_name` when set.
     repo_names: list[str] | None = None
     base_branch: str | None = None
+    claude_model: str | None = None
 
     @field_validator("steps")
     @classmethod
@@ -101,6 +102,7 @@ class RunRead(BaseModel):
     ticket_summary: str | None
     instructions: str | None
     iteration_notes: str | None
+    claude_model: str | None
     repo_name: str | None
     repo_names: list[str] | None
     base_branch: str | None

@@ -54,6 +54,7 @@ def launch_run(
         repo_name=data.repo_name,
         repo_names=data.repo_names,
         base_branch=data.base_branch,
+        claude_model=data.claude_model,
     )
     return svc.to_run_read(run)
 

@@ -36,6 +36,7 @@ class LaunchAddressPrRequest(BaseModel):
     repo_name: str | None = None
     ticket_key: str | None = None
     instructions: str | None = None
+    claude_model: str | None = None
 
     @field_validator("pr_url")
     @classmethod
@@ -94,6 +95,7 @@ class RunRead(BaseModel):
     repo_name: str | None
     ticket_key: str | None
     instructions: str | None
+    claude_model: str | None
     status: str
     worktree_path: str | None
     branch: str | None

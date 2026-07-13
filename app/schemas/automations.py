@@ -40,6 +40,7 @@ class AutomationRead(BaseModel):
     instructions: str | None
     connection_name: str | None
     repo_name: str | None
+    claude_model: str | None
     frequency: str
     day_of_week: int | None
     day_of_month: int | None
@@ -60,6 +61,7 @@ class AutomationCreate(BaseModel):
     instructions: str | None = None
     connection_name: str | None = None
     repo_name: str | None = None
+    claude_model: str | None = None
     frequency: str
     day_of_week: int | None = None
     day_of_month: int | None = None
@@ -73,6 +75,7 @@ class AutomationUpdate(BaseModel):
     instructions: str | None = None
     connection_name: str | None = None
     repo_name: str | None = None
+    claude_model: str | None = None
     frequency: str | None = None
     day_of_week: int | None = None
     day_of_month: int | None = None
@@ -92,6 +95,7 @@ class AutomationRunClaim(BaseModel):
     instructions: str | None
     connection_name: str | None
     repo_name: str | None
+    claude_model: str | None
     scheduled_for: date
 
     class Config:

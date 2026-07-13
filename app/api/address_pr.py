@@ -53,6 +53,7 @@ def launch_run(
         repo_name=data.repo_name,
         ticket_key=data.ticket_key,
         instructions=data.instructions,
+        claude_model=data.claude_model,
     )
     return svc.to_run_read(run)
 
