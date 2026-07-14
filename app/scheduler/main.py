@@ -28,6 +28,15 @@ def _init_models():
     from app.models.task_execution import TaskExecution  # noqa: F401
     from app.models.automation import Automation  # noqa: F401
     from app.models.automation_run import AutomationRun  # noqa: F401
+    from app.models.productivity_connection import ProductivityConnection  # noqa: F401
+    from app.models.code_review_run import CodeReviewRun  # noqa: F401
+    from app.models.code_review_step import CodeReviewStep  # noqa: F401
+    from app.models.address_pr_run import AddressPrRun  # noqa: F401
+    from app.models.address_pr_step import AddressPrStep  # noqa: F401
+    from app.models.implementation_run import ImplementationRun  # noqa: F401
+    from app.models.implementation_step import ImplementationStep  # noqa: F401
+    from app.models.platform_event import PlatformEvent  # noqa: F401
+    from app.models.proposal import Proposal  # noqa: F401
 
 
 _init_models()
@@ -36,6 +45,7 @@ from app.core.db import SessionLocal  # noqa: E402
 from app.scheduler.materializer import materialize_pending_executions  # noqa: E402
 from app.scheduler.executor import execute_pending_tasks  # noqa: E402
 from app.scheduler.automation_materializer import materialize_automation_runs  # noqa: E402
+from app.scheduler.watchdog import run_watchdog  # noqa: E402
 
 INTERVAL_SECONDS = 300  # 5 minutes
 
@@ -46,6 +56,7 @@ def run_cycle() -> None:
         materialize_pending_executions(db)
         execute_pending_tasks(db)
         materialize_automation_runs(db)
+        run_watchdog(db)
     except Exception:
         logger.exception("Scheduler cycle failed")
     finally:

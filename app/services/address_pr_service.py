@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.models.address_pr_run import AddressPrRun
 from app.models.address_pr_step import AddressPrStep
+from app.services import platform_events_service as events
 
 STEP_CATALOG: list[dict] = [
     {"kind": "fix_draft", "sensitive": False},
@@ -239,6 +240,19 @@ def claim_next_run(db: Session, runner_id: str) -> AddressPrRun | None:
     run.status = "running"
     run.claimed_by = runner_id
     run.claimed_at = datetime.utcnow()
+
+    conn = run.connection
+    events.emit_event(
+        db,
+        source="address_pr",
+        event_type="run_started",
+        title=f"Address PR iniciado: PR {run.pr_number or run.pr_url}",
+        connection_name=conn.display_name if conn else None,
+        ref_kind="address_pr_run",
+        ref_id=run.id,
+        url_path="/address-pr-comments",
+    )
+
     db.commit()
     db.refresh(run)
     return run
@@ -296,6 +310,17 @@ def update_step(
             run.status = "awaiting_approval"
             run.claimed_by = None
             run.claimed_at = None
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="address_pr",
+                event_type="awaiting_approval",
+                title=f"Fixes prontos ({step.kind}): PR {run.pr_number or run.pr_url}",
+                connection_name=conn.display_name if conn else None,
+                ref_kind="address_pr_run",
+                ref_id=run.id,
+                url_path="/address-pr-comments",
+            )
 
     db.commit()
     db.refresh(run)
@@ -313,6 +338,23 @@ def update_run(
     if patch.get("status") in TERMINAL_RUN_STATUSES:
         run.claimed_by = None
         run.claimed_at = None
+        if patch["status"] in ("done", "failed"):
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="address_pr",
+                event_type="run_finished" if patch["status"] == "done" else "run_failed",
+                title=(
+                    f"Address PR concluído: PR {run.pr_number or run.pr_url}"
+                    if patch["status"] == "done"
+                    else f"Address PR falhou: PR {run.pr_number or run.pr_url}"
+                ),
+                summary=run.error,
+                connection_name=conn.display_name if conn else None,
+                ref_kind="address_pr_run",
+                ref_id=run.id,
+                url_path="/address-pr-comments",
+            )
     db.commit()
     db.refresh(run)
     return run

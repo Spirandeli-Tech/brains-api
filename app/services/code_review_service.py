@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.models.code_review_run import CodeReviewRun
 from app.models.code_review_step import CodeReviewStep
+from app.services import platform_events_service as events
 
 STEP_CATALOG: list[dict] = [
     {"kind": "review_draft", "sensitive": False},
@@ -235,6 +236,19 @@ def claim_next_run(db: Session, runner_id: str) -> CodeReviewRun | None:
     run.status = "running"
     run.claimed_by = runner_id
     run.claimed_at = datetime.utcnow()
+
+    conn = run.connection
+    events.emit_event(
+        db,
+        source="code_review",
+        event_type="run_started",
+        title=f"Review iniciado: PR {run.pr_number or run.pr_url}",
+        connection_name=conn.display_name if conn else None,
+        ref_kind="code_review_run",
+        ref_id=run.id,
+        url_path="/code-review",
+    )
+
     db.commit()
     db.refresh(run)
     return run
@@ -263,6 +277,17 @@ def update_step(
             run.status = "awaiting_approval"
             run.claimed_by = None
             run.claimed_at = None
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="code_review",
+                event_type="awaiting_approval",
+                title=f"Review pronta: PR {run.pr_number or run.pr_url}",
+                connection_name=conn.display_name if conn else None,
+                ref_kind="code_review_run",
+                ref_id=run.id,
+                url_path="/code-review",
+            )
 
     db.commit()
     db.refresh(run)
@@ -280,6 +305,23 @@ def update_run(
     if patch.get("status") in TERMINAL_RUN_STATUSES:
         run.claimed_by = None
         run.claimed_at = None
+        if patch["status"] in ("done", "failed"):
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="code_review",
+                event_type="run_finished" if patch["status"] == "done" else "run_failed",
+                title=(
+                    f"Review concluído: PR {run.pr_number or run.pr_url}"
+                    if patch["status"] == "done"
+                    else f"Review falhou: PR {run.pr_number or run.pr_url}"
+                ),
+                summary=run.error,
+                connection_name=conn.display_name if conn else None,
+                ref_kind="code_review_run",
+                ref_id=run.id,
+                url_path="/code-review",
+            )
     db.commit()
     db.refresh(run)
     return run

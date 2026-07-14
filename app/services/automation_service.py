@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.models.automation import Automation
 from app.models.automation_run import AutomationRun
 from app.services import connection_registry
+from app.services import platform_events_service as events
 
 
 def _parse_time(time_str: str | None) -> time:
@@ -180,10 +181,22 @@ def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
     run.status = "running"
     run.claimed_by = runner_id
     run.started_at = now
+
+    automation = run.automation
+    events.emit_event(
+        db,
+        source="automation",
+        event_type="run_started",
+        title=f"Automação '{automation.name}' iniciada",
+        connection_name=automation.connection_name,
+        ref_kind="automation_run",
+        ref_id=run.id,
+        url_path=f"/automations/{automation.id}",
+    )
+
     db.commit()
     db.refresh(run)
 
-    automation = run.automation
     return {
         "id": run.id,
         "automation_id": run.automation_id,
@@ -205,6 +218,22 @@ def update_automation_run(db: Session, run_id: UUID, data: dict) -> dict | None:
         run.status = data["status"]
         if data["status"] in ("done", "failed"):
             run.finished_at = datetime.utcnow()
+            automation = run.automation
+            events.emit_event(
+                db,
+                source="automation",
+                event_type="run_finished" if data["status"] == "done" else "run_failed",
+                title=(
+                    f"Automação '{automation.name}' concluída"
+                    if data["status"] == "done"
+                    else f"Automação '{automation.name}' falhou"
+                ),
+                summary=data.get("result_summary") or data.get("error"),
+                connection_name=automation.connection_name,
+                ref_kind="automation_run",
+                ref_id=run.id,
+                url_path=f"/automations/{automation.id}",
+            )
     if "log" in data and data["log"] is not None:
         run.log = data["log"]
     if "result_summary" in data and data["result_summary"] is not None:

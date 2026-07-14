@@ -23,6 +23,10 @@ from app.models.code_review_run import CodeReviewRun
 from app.models.code_review_step import CodeReviewStep
 from app.models.address_pr_run import AddressPrRun
 from app.models.address_pr_step import AddressPrStep
+from app.models.automation import Automation
+from app.models.automation_run import AutomationRun
+from app.models.platform_event import PlatformEvent
+from app.models.proposal import Proposal
 from app.core.db import Base
 
 __all__ = [
@@ -51,5 +55,9 @@ __all__ = [
     "CodeReviewStep",
     "AddressPrRun",
     "AddressPrStep",
+    "Automation",
+    "AutomationRun",
+    "PlatformEvent",
+    "Proposal",
     "Base",
 ]

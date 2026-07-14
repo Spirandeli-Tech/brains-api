@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, lazyload
 from app.models.implementation_run import ImplementationRun
 from app.models.implementation_step import ImplementationStep
 from app.services import connection_registry
+from app.services import platform_events_service as events
 
 # Canonical catalog of steps, in execution order. `sensitive` steps pause for
 # user approval. Mirrors web/src/lib/clients/implementations/constants.ts (§6).
@@ -325,6 +326,19 @@ def claim_next_run(db: Session, runner_id: str) -> ImplementationRun | None:
     run.status = "running"
     run.claimed_by = runner_id
     run.claimed_at = datetime.utcnow()
+
+    conn = run.connection
+    events.emit_event(
+        db,
+        source="implementation",
+        event_type="run_started",
+        title=f"Implementação iniciada: {run.ticket_key or run.ticket_url}",
+        connection_name=conn.display_name if conn else None,
+        ref_kind="implementation_run",
+        ref_id=run.id,
+        url_path="/implementations",
+    )
+
     db.commit()
     db.refresh(run)
     return run
@@ -384,6 +398,17 @@ def update_step(
             run.status = "awaiting_approval"
             run.claimed_by = None
             run.claimed_at = None
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="implementation",
+                event_type="awaiting_approval",
+                title=f"Aprovação pendente ({step.kind}): {run.ticket_key or run.ticket_url}",
+                connection_name=conn.display_name if conn else None,
+                ref_kind="implementation_run",
+                ref_id=run.id,
+                url_path="/implementations",
+            )
 
     db.commit()
     db.refresh(run)
@@ -404,6 +429,23 @@ def update_run(
     if patch.get("status") in TERMINAL_RUN_STATUSES:
         run.claimed_by = None
         run.claimed_at = None
+        if patch["status"] in ("done", "failed"):
+            conn = run.connection
+            events.emit_event(
+                db,
+                source="implementation",
+                event_type="run_finished" if patch["status"] == "done" else "run_failed",
+                title=(
+                    f"Implementação concluída: {run.ticket_key or run.ticket_url}"
+                    if patch["status"] == "done"
+                    else f"Implementação falhou: {run.ticket_key or run.ticket_url}"
+                ),
+                summary=run.error,
+                connection_name=conn.display_name if conn else None,
+                ref_kind="implementation_run",
+                ref_id=run.id,
+                url_path="/implementations",
+            )
     db.commit()
     db.refresh(run)
     return run

@@ -16,6 +16,8 @@ from app.api.implementations import router as implementations_router
 from app.api.automations import router as automations_router
 from app.api.code_reviews import router as code_reviews_router
 from app.api.address_pr import router as address_pr_router
+from app.api.briefing import router as briefing_router
+from app.api.proposals import router as proposals_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -47,3 +49,5 @@ app.include_router(implementations_router)
 app.include_router(automations_router)
 app.include_router(code_reviews_router)
 app.include_router(address_pr_router)
+app.include_router(briefing_router)
+app.include_router(proposals_router)
