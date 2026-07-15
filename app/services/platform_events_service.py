@@ -236,6 +236,20 @@ def _build_narrative(
     return " ".join(parts)
 
 
+def list_recent_events(db: Session, limit: int = 50) -> list[dict]:
+    """Feed for the header notification bell — unlike `build_briefing`'s
+    `timeline`, this isn't scoped to today, so an unread event from a day the
+    user never opened the app doesn't just vanish from view.
+    """
+    events = (
+        db.query(PlatformEvent)
+        .order_by(PlatformEvent.occurred_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_event_read(e) for e in events]
+
+
 def mark_all_seen(db: Session) -> None:
     (
         db.query(PlatformEvent)

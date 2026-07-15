@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.db import get_db
 from app.models.user import User
-from app.schemas.briefing import BriefingRead
+from app.schemas.briefing import BriefingRead, EventRead
 from app.services import platform_events_service as svc
 
 router = APIRouter(prefix="/briefing", tags=["briefing"])
@@ -19,6 +19,15 @@ def get_briefing(
     current_user: User = Depends(get_current_user),
 ):
     return svc.build_briefing(db, target_date or date.today())
+
+
+@router.get("/events", response_model=list[EventRead])
+def list_recent_events(
+    limit: int = Query(default=50, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return svc.list_recent_events(db, limit)
 
 
 @router.post("/seen", status_code=204)
