@@ -37,3 +37,4 @@ class BriefingRead(BaseModel):
     failures: list[EventRead]
     timeline: list[EventRead]
     unseen_count: int
+    in_progress: dict[str, int]

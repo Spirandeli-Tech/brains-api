@@ -27,6 +27,8 @@ from app.models.automation import Automation
 from app.models.automation_run import AutomationRun
 from app.models.platform_event import PlatformEvent
 from app.models.proposal import Proposal
+from app.models.watcher import Watcher
+from app.models.watcher_sighting import WatcherSighting
 from app.core.db import Base
 
 __all__ = [
@@ -59,5 +61,7 @@ __all__ = [
     "AutomationRun",
     "PlatformEvent",
     "Proposal",
+    "Watcher",
+    "WatcherSighting",
     "Base",
 ]

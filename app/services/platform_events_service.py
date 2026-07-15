@@ -19,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.address_pr_run import AddressPrRun
+from app.models.automation_run import AutomationRun
 from app.models.code_review_run import CodeReviewRun
 from app.models.implementation_run import ImplementationRun
 from app.models.platform_event import PlatformEvent
@@ -143,6 +144,36 @@ def _awaiting_approval_items(db: Session) -> list[dict]:
     return items
 
 
+def _in_progress_counts(db: Session) -> dict[str, int]:
+    """Runs that are alive in the runner's pipeline but don't need the user's
+    attention yet — as opposed to `awaiting_approval`, which does. Surfaced
+    separately in the briefing so "1 awaiting you" doesn't read as "nothing
+    else is happening" when a dozen runs are still queued/running.
+    """
+    return {
+        "implementation": (
+            db.query(func.count(ImplementationRun.id))
+            .filter(ImplementationRun.status.in_(("queued", "running")))
+            .scalar()
+        ),
+        "code_review": (
+            db.query(func.count(CodeReviewRun.id))
+            .filter(CodeReviewRun.status.in_(("queued", "running")))
+            .scalar()
+        ),
+        "address_pr": (
+            db.query(func.count(AddressPrRun.id))
+            .filter(AddressPrRun.status.in_(("queued", "running")))
+            .scalar()
+        ),
+        "automation": (
+            db.query(func.count(AutomationRun.id))
+            .filter(AutomationRun.status.in_(("pending", "running")))
+            .scalar()
+        ),
+    }
+
+
 def build_briefing(db: Session, target_date: date) -> dict:
     day_start = datetime.combine(target_date, datetime.min.time())
     day_end = day_start + timedelta(days=1)
@@ -180,6 +211,7 @@ def build_briefing(db: Session, target_date: date) -> dict:
         "failures": [_event_read(e) for e in failed_events],
         "timeline": [_event_read(e) for e in day_events],
         "unseen_count": unseen_count,
+        "in_progress": _in_progress_counts(db),
     }
 
 
