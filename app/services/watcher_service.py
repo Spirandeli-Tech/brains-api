@@ -152,14 +152,22 @@ def report_watcher_tick(
 
             run = None
             if watcher.kind == "github_review_requested":
-                run = code_review_service.launch_run(
-                    db,
-                    user_id=watcher.user_id,
-                    connection_id=watcher.connection_id,
-                    pr_url=sighting["pr_url"],
-                    repo_name=sighting.get("repo_name"),
-                )
-                created_run_ids.append(str(run.id))
+                # A per-watcher sighting row already dedups this watcher across
+                # ticks; this second guard dedups across watchers (two watchers
+                # on the same repo) and closes the resurfacing-while-open case —
+                # record the sighting either way so we stop re-checking, but
+                # don't spawn a duplicate run for a PR that already has one.
+                if code_review_service.has_active_run_for_pr(db, sighting["pr_url"]):
+                    run = None
+                else:
+                    run = code_review_service.launch_run(
+                        db,
+                        user_id=watcher.user_id,
+                        connection_id=watcher.connection_id,
+                        pr_url=sighting["pr_url"],
+                        repo_name=sighting.get("repo_name"),
+                    )
+                    created_run_ids.append(str(run.id))
 
             db.add(
                 WatcherSighting(

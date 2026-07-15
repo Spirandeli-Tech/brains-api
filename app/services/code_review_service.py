@@ -117,6 +117,25 @@ def launch_run(
     return run
 
 
+def has_active_run_for_pr(db: Session, pr_url: str) -> bool:
+    """True if a non-terminal run already exists for this PR.
+
+    Guards against duplicate review runs for the same PR: a second watcher on
+    the same repo, or the same PR resurfacing in the review-requested list
+    while a prior run is still queued/running/awaiting_approval (GitHub keeps a
+    team-requested PR in that list until you personally submit a review).
+    """
+    existing = (
+        db.query(CodeReviewRun.id)
+        .filter(
+            CodeReviewRun.pr_url == pr_url,
+            CodeReviewRun.status.in_(ACTIVE_RUN_STATUSES),
+        )
+        .first()
+    )
+    return existing is not None
+
+
 def get_run(db: Session, run_id: UUID) -> CodeReviewRun | None:
     return db.query(CodeReviewRun).filter(CodeReviewRun.id == run_id).first()
 
