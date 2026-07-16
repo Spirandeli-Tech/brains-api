@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.core.db import Base
@@ -39,3 +39,10 @@ class Proposal(Base):
     status = Column(String, nullable=False, default="pending", server_default="pending")
     # Id of the run created when this proposal was accepted.
     result_ref = Column(String, nullable=True)
+    # The planner_run that generated this proposal (source="planner"); null for
+    # watcher/manual proposals. Lets the UI dismiss a whole day's suggestions.
+    plan_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("planner_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )

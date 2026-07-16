@@ -99,10 +99,12 @@ class RunRead(BaseModel):
     pr_url: str
     pr_number: str | None
     repo_name: str | None
+    pr_author: str | None
     ticket_key: str | None
     instructions: str | None
     claude_model: str | None
     status: str
+    auto_publish: bool
     review_action: str | None
     review_plan: dict | None
     error: str | None
@@ -132,6 +134,9 @@ class RunUpdate(BaseModel):
     review_action: str | None = None
     review_plan: dict | None = None
     error: str | None = None
+    # Event-only note for a run that finished without posting (e.g. PR closed
+    # before the review went out). Not persisted as a column.
+    summary: str | None = None
 
     @field_validator("status")
     @classmethod

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -38,6 +38,9 @@ class CodeReviewRun(Base):
     pr_url = Column(String, nullable=False)
     pr_number = Column(String, nullable=True)
     repo_name = Column(String, nullable=True)
+    # GitHub login of whoever opened the PR (captured by the watcher). Display
+    # only; null for manually-launched runs where we don't know it upfront.
+    pr_author = Column(String, nullable=True)
     ticket_key = Column(String, nullable=True)
     # Optional focus instructions for the review (e.g. "focus on performance").
     instructions = Column(Text, nullable=True)
@@ -46,6 +49,15 @@ class CodeReviewRun(Base):
 
     # queued | running | awaiting_approval | done | failed | cancelled
     status = Column(String, nullable=False, default="queued", server_default="queued")
+
+    # When true, the runner posts the review without pausing for human approval:
+    # `comment`/`request_changes` always auto-post; `approve` auto-posts only when
+    # the PR is safe (open + no outstanding CHANGES_REQUESTED), else it falls back
+    # to awaiting_approval. Watcher-created runs set this; manual runs keep the
+    # classic draft → approve → post gate (default false).
+    auto_publish = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Chosen at approval time: approve | request_changes | comment
     review_action = Column(String, nullable=True)

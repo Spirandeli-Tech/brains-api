@@ -56,11 +56,34 @@ def run_cycle() -> None:
         materialize_pending_executions(db)
         execute_pending_tasks(db)
         materialize_automation_runs(db)
+        materialize_planner_runs(db)
         run_watchdog(db)
     except Exception:
         logger.exception("Scheduler cycle failed")
     finally:
         db.close()
+
+
+def materialize_planner_runs(db) -> None:
+    """Scheduled peg of the "Insights for Today" trigger (fase 4a): for each
+    user who enabled the planner, once the configured UTC hour has passed and
+    there's no run for today yet, create one. get_or_create_today is idempotent,
+    so this races safely with the lazy trigger (GET /insights).
+    """
+    from datetime import datetime
+
+    from app.models.user_preferences import UserPreferences
+    from app.services import planner_service
+
+    now_hour = datetime.utcnow().hour
+    prefs = (
+        db.query(UserPreferences)
+        .filter(UserPreferences.planner_enabled.is_(True))
+        .all()
+    )
+    for p in prefs:
+        if now_hour >= (p.planner_hour or 7):
+            planner_service.get_or_create_today(db, p.user_id)
 
 
 async def main() -> None:

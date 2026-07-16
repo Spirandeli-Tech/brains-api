@@ -46,10 +46,12 @@ def to_run_read(run: CodeReviewRun) -> dict:
         "pr_url": run.pr_url,
         "pr_number": run.pr_number,
         "repo_name": run.repo_name,
+        "pr_author": run.pr_author,
         "ticket_key": run.ticket_key,
         "instructions": run.instructions,
         "claude_model": run.claude_model,
         "status": run.status,
+        "auto_publish": run.auto_publish,
         "review_action": run.review_action,
         "review_plan": run.review_plan,
         "error": run.error,
@@ -83,6 +85,8 @@ def launch_run(
     ticket_key: str | None = None,
     instructions: str | None = None,
     claude_model: str | None = None,
+    auto_publish: bool = False,
+    pr_author: str | None = None,
 ) -> CodeReviewRun:
     derived_pr_number = pr_number_from_url(pr_url)
     derived_ticket_key = ticket_key or ticket_key_from_url(pr_url)
@@ -93,9 +97,11 @@ def launch_run(
         pr_url=pr_url,
         pr_number=derived_pr_number,
         repo_name=repo_name or None,
+        pr_author=pr_author or None,
         ticket_key=derived_ticket_key,
         instructions=(instructions.strip() if instructions and instructions.strip() else None),
         claude_model=claude_model or None,
+        auto_publish=auto_publish,
         status="queued",
     )
     db.add(run)
@@ -321,6 +327,10 @@ def update_run(
     for field in ("status", "pr_number", "review_action", "review_plan", "error"):
         if field in patch and patch[field] is not None:
             setattr(run, field, patch[field])
+    # `summary` is an event-only override (not a column): the runner uses it to
+    # explain a run that finished without posting, e.g. a PR that closed/merged
+    # before the review went out. Falls back to run.error when absent.
+    event_summary = patch.get("summary") or run.error
     if patch.get("status") in TERMINAL_RUN_STATUSES:
         run.claimed_by = None
         run.claimed_at = None
@@ -335,7 +345,7 @@ def update_run(
                     if patch["status"] == "done"
                     else f"Review falhou: PR {run.pr_number or run.pr_url}"
                 ),
-                summary=run.error,
+                summary=event_summary,
                 connection_name=conn.display_name if conn else None,
                 ref_kind="code_review_run",
                 ref_id=run.id,

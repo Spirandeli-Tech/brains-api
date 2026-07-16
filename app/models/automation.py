@@ -30,6 +30,11 @@ class Automation(Base):
     days_of_week = Column(JSONB, nullable=True)
     time_of_day = Column(Time, nullable=False, default=time(8, 0))
     enabled = Column(Boolean, nullable=False, default=True)
+    # Ad-hoc automation created to dispatch a one-off skill run (e.g. a planner
+    # proposal's `run_skill`). Never self-schedules (enabled=False, frequency
+    # "manual") and is hidden from the Automations UI list. Reuses the whole
+    # automation runner path without a new run type.
+    ephemeral = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

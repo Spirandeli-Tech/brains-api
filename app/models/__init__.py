@@ -29,6 +29,7 @@ from app.models.platform_event import PlatformEvent
 from app.models.proposal import Proposal
 from app.models.watcher import Watcher
 from app.models.watcher_sighting import WatcherSighting
+from app.models.planner_run import PlannerRun
 from app.core.db import Base
 
 __all__ = [
@@ -63,5 +64,6 @@ __all__ = [
     "Proposal",
     "Watcher",
     "WatcherSighting",
+    "PlannerRun",
     "Base",
 ]

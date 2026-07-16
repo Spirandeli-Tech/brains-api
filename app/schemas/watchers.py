@@ -56,10 +56,15 @@ class WatcherClaimRead(BaseModel):
 
 class SightingReport(BaseModel):
     external_key: str
-    pr_url: str
+    title: str | None = None
+    # PR-shaped sightings (github_review_requested)
+    pr_url: str | None = None
     pr_number: str | None = None
     repo_name: str | None = None
-    title: str | None = None
+    pr_author: str | None = None
+    # Ticket-shaped sightings (jira_backlog_assigned)
+    ticket_key: str | None = None
+    ticket_url: str | None = None
 
 
 class WatcherReport(BaseModel):

@@ -86,11 +86,37 @@ def list_available_skills() -> list[str]:
 def list_automations(db: Session, user_id: UUID) -> list[dict]:
     automations = (
         db.query(Automation)
-        .filter(Automation.user_id == user_id)
+        .filter(Automation.user_id == user_id, Automation.ephemeral.is_(False))
         .order_by(Automation.created_at.desc())
         .all()
     )
     return [_serialize_automation(a) for a in automations]
+
+
+def create_ephemeral_run(db: Session, user_id: UUID, payload: dict) -> dict:
+    """Dispatch a one-off skill run (e.g. a planner `run_skill` proposal).
+
+    Creates a hidden, never-scheduled Automation and immediately triggers a
+    manual run of it — reusing the whole automation runner path without a new
+    run type. The manual run bypasses both the time gate and the enabled gate
+    (see claim_next_automation_run).
+    """
+    automation = Automation(
+        user_id=user_id,
+        name=payload.get("name") or f"Planner: {payload['skill']}",
+        skill=payload["skill"],
+        instructions=payload.get("instructions"),
+        connection_name=payload.get("connection_name"),
+        repo_name=payload.get("repo_name"),
+        claude_model=payload.get("claude_model"),
+        frequency="manual",
+        enabled=False,
+        ephemeral=True,
+    )
+    db.add(automation)
+    db.commit()
+    db.refresh(automation)
+    return trigger_manual_run(db, automation)
 
 
 def create_automation(db: Session, user_id: UUID, data: dict) -> dict:

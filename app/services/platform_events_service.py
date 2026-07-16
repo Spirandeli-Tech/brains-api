@@ -31,6 +31,7 @@ SOURCE_LABELS = {
     "address_pr": "Address PR",
     "automation": "Automação",
     "watcher": "Watcher",
+    "planner": "Planejadora",
     "system": "Sistema",
 }
 

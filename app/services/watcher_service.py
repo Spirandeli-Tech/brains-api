@@ -16,9 +16,11 @@ from uuid import UUID
 from sqlalchemy import nullsfirst, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.models.proposal import Proposal
 from app.models.watcher import Watcher
 from app.models.watcher_sighting import WatcherSighting
 from app.services import code_review_service
+from app.services import platform_events_service as events
 
 
 def _serialize_watcher(watcher: Watcher) -> dict:
@@ -151,6 +153,46 @@ def report_watcher_tick(
                 continue
 
             run = None
+            if watcher.kind == "jira_backlog_assigned":
+                # A ticket assigned to me sitting outside any sprint → a triage
+                # proposal. Accept dispatches /enrich-ticket (run_skill) on it;
+                # dismiss = acknowledged. "Move to sprint" isn't automatable yet.
+                conn = watcher.connection
+                ticket_key = sighting.get("ticket_key") or sighting["external_key"]
+                proposal = Proposal(
+                    source="watcher",
+                    title=f"Backlog: {ticket_key} fora da sprint",
+                    description=sighting.get("title"),
+                    action_kind="run_skill",
+                    action_payload={
+                        "skill": "/enrich-ticket",
+                        "instructions": ticket_key,
+                        "connection_name": conn.display_name if conn else None,
+                    },
+                    status="pending",
+                )
+                db.add(proposal)
+                db.flush()
+                events.emit_event(
+                    db,
+                    source="watcher",
+                    event_type="proposal_created",
+                    title=f"Novo no seu backlog: {ticket_key}",
+                    summary=sighting.get("title"),
+                    connection_name=conn.display_name if conn else None,
+                    ref_kind="proposal",
+                    ref_id=proposal.id,
+                    url_path="/insights",
+                )
+                db.add(
+                    WatcherSighting(
+                        watcher_id=watcher.id,
+                        external_key=sighting["external_key"],
+                        handled_ref=str(proposal.id),
+                    )
+                )
+                continue
+
             if watcher.kind == "github_review_requested":
                 # A per-watcher sighting row already dedups this watcher across
                 # ticks; this second guard dedups across watchers (two watchers
@@ -160,12 +202,19 @@ def report_watcher_tick(
                 if code_review_service.has_active_run_for_pr(db, sighting["pr_url"]):
                     run = None
                 else:
+                    # auto_publish defaults on for this watcher: the review is
+                    # posted without a manual gate (comment/request_changes
+                    # always; approve only when the PR is safe). Turn it off per
+                    # watcher via config to restore the draft → approve flow.
+                    auto_publish = bool((watcher.config or {}).get("auto_publish", True))
                     run = code_review_service.launch_run(
                         db,
                         user_id=watcher.user_id,
                         connection_id=watcher.connection_id,
                         pr_url=sighting["pr_url"],
                         repo_name=sighting.get("repo_name"),
+                        pr_author=sighting.get("pr_author"),
+                        auto_publish=auto_publish,
                     )
                     created_run_ids.append(str(run.id))
 

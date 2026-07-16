@@ -19,6 +19,7 @@ from app.api.address_pr import router as address_pr_router
 from app.api.briefing import router as briefing_router
 from app.api.proposals import router as proposals_router
 from app.api.watchers import router as watchers_router
+from app.api.insights import router as insights_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -53,3 +54,4 @@ app.include_router(address_pr_router)
 app.include_router(briefing_router)
 app.include_router(proposals_router)
 app.include_router(watchers_router)
+app.include_router(insights_router)

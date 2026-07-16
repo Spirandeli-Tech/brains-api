@@ -87,6 +87,14 @@ def accept_proposal(db: Session, proposal: Proposal, user_id: UUID) -> Proposal:
             raise ValueError("Automation not found")
         run = automation_service.trigger_manual_run(db, automation)
         result_ref = str(run["id"])
+    elif proposal.action_kind == "run_skill":
+        # Planner suggestions like "run /enrich-ticket on NOVO-88": dispatch a
+        # one-off skill run via a hidden ephemeral automation. Payload carries
+        # skill (+ optional instructions, connection_name, repo_name, name).
+        if not payload.get("skill"):
+            raise ValueError("run_skill proposal missing 'skill' in action_payload")
+        run = automation_service.create_ephemeral_run(db, user_id, payload)
+        result_ref = str(run["id"])
     else:
         raise ValueError(
             f"action_kind '{proposal.action_kind}' isn't dispatchable yet"
