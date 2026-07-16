@@ -57,6 +57,7 @@ def run_cycle() -> None:
         execute_pending_tasks(db)
         materialize_automation_runs(db)
         materialize_planner_runs(db)
+        maybe_send_daily_digest(db)
         run_watchdog(db)
     except Exception:
         logger.exception("Scheduler cycle failed")
@@ -84,6 +85,51 @@ def materialize_planner_runs(db) -> None:
     for p in prefs:
         if now_hour >= (p.planner_hour or 7):
             planner_service.get_or_create_today(db, p.user_id)
+
+
+def maybe_send_daily_digest(db) -> None:
+    """Post the morning briefing to Slack once a day, at the operator's
+    planner_hour (fase 3). Guarded by a `digest_sent` system event so it fires
+    exactly once per UTC day regardless of how many 5-min cycles run after the
+    hour, and survives a scheduler restart. No-op when Slack isn't configured.
+    """
+    from datetime import datetime
+
+    from app.models.platform_event import PlatformEvent
+    from app.models.user_preferences import UserPreferences
+    from app.services import notifier
+    from app.services import platform_events_service as events
+
+    if not notifier.is_configured():
+        return
+
+    prefs = db.query(UserPreferences).first()
+    hour = prefs.planner_hour if prefs and prefs.planner_hour is not None else 7
+    now = datetime.utcnow()
+    if now.hour < hour:
+        return
+
+    day_start = datetime.combine(now.date(), datetime.min.time())
+    already_sent = (
+        db.query(PlatformEvent.id)
+        .filter(
+            PlatformEvent.event_type == "digest_sent",
+            PlatformEvent.occurred_at >= day_start,
+        )
+        .first()
+    )
+    if already_sent:
+        return
+
+    briefing = events.build_briefing(db, now.date())
+    notifier.notify_digest(briefing)
+    events.emit_event(
+        db,
+        source="system",
+        event_type="digest_sent",
+        title="Digest matinal enviado ao Slack",
+    )
+    db.commit()
 
 
 async def main() -> None:

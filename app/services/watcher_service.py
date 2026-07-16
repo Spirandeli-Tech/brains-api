@@ -2,11 +2,12 @@
 
 A watcher is a runner-side check (no Claude, no cost) that polls the outside
 world on an interval and turns new findings into runs the existing pipelines
-already know how to execute. `github_review_requested` (W1) is the first one:
-it finds PRs where the user is a requested reviewer and creates a
-CodeReviewRun for each new one — the pipeline's own review_draft/post_review
-gate (code_review_service.py) is what pauses for human approval, so this
-service has nothing extra to gate.
+already know how to execute. `github_review_requested` (W1) finds PRs where the
+user is a requested reviewer and creates a CodeReviewRun for each new one;
+`github_reviews_received` (W2) finds new feedback on the user's *own* open PRs
+and creates an AddressPrRun for each. In both cases the pipeline's own steps
+(review_draft/post_review, or fix_draft/commit_push/post_replies) are what pause
+for human approval, so this service has nothing extra to gate.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.models.proposal import Proposal
 from app.models.watcher import Watcher
 from app.models.watcher_sighting import WatcherSighting
+from app.services import address_pr_service
 from app.services import code_review_service
 from app.services import platform_events_service as events
 
@@ -215,6 +217,25 @@ def report_watcher_tick(
                         repo_name=sighting.get("repo_name"),
                         pr_author=sighting.get("pr_author"),
                         auto_publish=auto_publish,
+                    )
+                    created_run_ids.append(str(run.id))
+
+            if watcher.kind == "github_reviews_received":
+                # New feedback on one of my own PRs → an address-PR run that
+                # drafts fixes and pauses at the existing gates (before
+                # commit_push and post_replies) — preparing is autonomous,
+                # publishing stays gated. Only one active run per PR: further
+                # new sightings while it's open are recorded (so we stop
+                # re-checking them) but don't fork a second run.
+                if address_pr_service.has_active_run_for_pr(db, sighting["pr_url"]):
+                    run = None
+                else:
+                    run = address_pr_service.launch_run(
+                        db,
+                        user_id=watcher.user_id,
+                        connection_id=watcher.connection_id,
+                        pr_url=sighting["pr_url"],
+                        repo_name=sighting.get("repo_name"),
                     )
                     created_run_ids.append(str(run.id))
 

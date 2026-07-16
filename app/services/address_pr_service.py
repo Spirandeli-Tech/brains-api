@@ -135,6 +135,26 @@ def list_runs(db: Session, user_id: UUID) -> list[AddressPrRun]:
     )
 
 
+def has_active_run_for_pr(db: Session, pr_url: str) -> bool:
+    """True if a non-terminal address-PR run already exists for this PR.
+
+    Guards W2 (github_reviews_received): a PR can accrue several new
+    reviews/comments while its fix run is still queued/running/awaiting
+    approval — each is a fresh sighting, but they must all fold into the one
+    open run instead of forking a second. Also dedups against a run I kicked
+    off manually for the same PR.
+    """
+    existing = (
+        db.query(AddressPrRun.id)
+        .filter(
+            AddressPrRun.pr_url == pr_url,
+            AddressPrRun.status.in_(ACTIVE_RUN_STATUSES),
+        )
+        .first()
+    )
+    return existing is not None
+
+
 def approve_step(
     db: Session,
     run: AddressPrRun,

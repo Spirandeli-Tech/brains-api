@@ -12,6 +12,7 @@ is currently awaiting approval or proposed, for the /briefing endpoint.
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
@@ -24,6 +25,9 @@ from app.models.code_review_run import CodeReviewRun
 from app.models.implementation_run import ImplementationRun
 from app.models.platform_event import PlatformEvent
 from app.models.proposal import Proposal
+from app.services import notifier
+
+logger = logging.getLogger(__name__)
 
 SOURCE_LABELS = {
     "implementation": "Implementação",
@@ -60,6 +64,24 @@ def emit_event(
         url_path=url_path,
     )
     db.add(event)
+
+    # Best-effort Slack DM for routed event types. Wrapped defensively so a
+    # notifier bug can never break the run whose event we're recording; the
+    # notifier itself already swallows network/API errors. Fires before commit
+    # (there's no post-commit hook), which is fine at this volume — the caller
+    # commits moments later and rollbacks here are vanishingly rare.
+    try:
+        notifier.notify_event(
+            event_type=event_type,
+            source=source,
+            title=title,
+            summary=summary,
+            connection_name=connection_name,
+            url_path=url_path,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("notify_event failed for %s/%s", source, event_type)
+
     return event
 
 

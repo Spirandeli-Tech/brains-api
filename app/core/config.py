@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     RUNNER_TOKEN: str = ""
     # Read-only mount of the host's ~/.claude, used to discover available skills for automations.
     CLAUDE_HOME_DIR: str = "/root/.claude"
+    # Slack notifier (proactive platform fase 3). Both empty disables it — the
+    # notifier no-ops, so the platform runs fine without Slack configured.
+    SLACK_BOT_TOKEN: str = ""
+    SLACK_USER_ID: str = ""
+    # Base URL of the web UI, used to build deep links in Slack messages.
+    WEB_BASE_URL: str = "http://localhost:3737"
 
     class Config:
         env_file = ".env"
