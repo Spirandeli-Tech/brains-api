@@ -161,10 +161,15 @@ def report_watcher_tick(
                 # dismiss = acknowledged. "Move to sprint" isn't automatable yet.
                 conn = watcher.connection
                 ticket_key = sighting.get("ticket_key") or sighting["external_key"]
+                summary = (sighting.get("title") or "").strip()
+                # Lead with the key (stable anchor, always visible when truncated)
+                # then the ticket's real name — so the card reads as "what is this
+                # ticket", not the jargon "Backlog: KEY fora da sprint".
+                headline = f"{ticket_key} — {summary}" if summary else ticket_key
                 proposal = Proposal(
                     source="watcher",
-                    title=f"Backlog: {ticket_key} fora da sprint",
-                    description=sighting.get("title"),
+                    title=headline,
+                    description="No backlog, fora de qualquer sprint. Rodar /enrich-ticket pra detalhar a spec?",
                     action_kind="run_skill",
                     action_payload={
                         "skill": "/enrich-ticket",
@@ -179,8 +184,8 @@ def report_watcher_tick(
                     db,
                     source="watcher",
                     event_type="proposal_created",
-                    title=f"Novo no seu backlog: {ticket_key}",
-                    summary=sighting.get("title"),
+                    title=f"Backlog: {headline}",
+                    summary="Fora de qualquer sprint — rodar /enrich-ticket?",
                     connection_name=conn.display_name if conn else None,
                     ref_kind="proposal",
                     ref_id=proposal.id,

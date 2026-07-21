@@ -35,8 +35,21 @@ class QueueItem(BaseModel):
     error: str | None = None
 
 
+class RecentRun(BaseModel):
+    kind: str  # automation | implementation | code_review | address_pr | planner
+    id: str
+    title: str
+    subtitle: str | None = None
+    connection_name: str | None = None
+    status: str  # done | failed | cancelled
+    finished_at: datetime | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
+
+
 class RunnerOverview(BaseModel):
     now: datetime
     runners: list[RunnerStatus]
     current: list[QueueItem]
     queued: list[QueueItem]
+    recent: list[RecentRun] = []

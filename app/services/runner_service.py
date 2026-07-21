@@ -8,6 +8,7 @@ runner actually behaves.
 """
 from datetime import datetime, timedelta
 
+from sqlalchemy import nullslast
 from sqlalchemy.orm import Session
 
 from app.models.address_pr_run import AddressPrRun
@@ -119,6 +120,133 @@ def _planner_item(run: PlannerRun) -> dict:
     }
 
 
+# Statuses that mean a run is done (as opposed to alive in the pipeline). Listed
+# broadly; a table that never uses one of these simply won't match it.
+_TERMINAL_STATUSES = ("done", "failed", "cancelled")
+RECENT_LIMIT = 12
+
+
+def _duration_seconds(start, end) -> float | None:
+    if not start or not end:
+        return None
+    return max(0.0, (end - start).total_seconds())
+
+
+def _recent_automation(run: AutomationRun, auto: Automation) -> dict:
+    return {
+        "kind": "automation",
+        "id": str(run.id),
+        "title": auto.skill or auto.name,
+        "subtitle": auto.name,
+        "connection_name": auto.connection_name,
+        "status": run.status,
+        "finished_at": run.finished_at,
+        "duration_seconds": _duration_seconds(run.started_at, run.finished_at),
+        "error": run.error,
+    }
+
+
+def _recent_impl(run: ImplementationRun) -> dict:
+    return {
+        "kind": "implementation",
+        "id": str(run.id),
+        "title": run.ticket_key or run.ticket_summary or "Implementation",
+        "subtitle": run.repo_name,
+        "connection_name": _conn_name(run),
+        "status": run.status,
+        "finished_at": run.updated_at,
+        "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
+        "error": run.error,
+    }
+
+
+def _recent_pr(run, kind: str) -> dict:
+    return {
+        "kind": kind,
+        "id": str(run.id),
+        "title": f"PR #{run.pr_number}" if run.pr_number else (run.pr_url or kind),
+        "subtitle": run.repo_name,
+        "connection_name": _conn_name(run),
+        "status": run.status,
+        "finished_at": run.updated_at,
+        "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
+        "error": run.error,
+    }
+
+
+def _recent_planner(run: PlannerRun) -> dict:
+    return {
+        "kind": "planner",
+        "id": str(run.id),
+        "title": f"Planner {run.plan_date}",
+        "subtitle": None,
+        "connection_name": None,
+        "status": run.status,
+        "finished_at": run.updated_at,
+        "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
+        "error": run.error,
+    }
+
+
+def _build_recent(db: Session) -> list[dict]:
+    """The most recently finished runs across all five tables, newest first.
+
+    Each table is queried for its terminal rows ordered by finish time and
+    capped at RECENT_LIMIT, then merged and re-capped — so the section is bounded
+    regardless of how much history sits in any single table.
+    """
+    recent: list[dict] = []
+
+    for run, auto in (
+        db.query(AutomationRun, Automation)
+        .join(Automation, Automation.id == AutomationRun.automation_id)
+        .filter(AutomationRun.status.in_(_TERMINAL_STATUSES))
+        .order_by(nullslast(AutomationRun.finished_at.desc()))
+        .limit(RECENT_LIMIT)
+        .all()
+    ):
+        recent.append(_recent_automation(run, auto))
+
+    for run in (
+        db.query(ImplementationRun)
+        .filter(ImplementationRun.status.in_(_TERMINAL_STATUSES))
+        .order_by(nullslast(ImplementationRun.updated_at.desc()))
+        .limit(RECENT_LIMIT)
+        .all()
+    ):
+        recent.append(_recent_impl(run))
+
+    for run in (
+        db.query(CodeReviewRun)
+        .filter(CodeReviewRun.status.in_(_TERMINAL_STATUSES))
+        .order_by(nullslast(CodeReviewRun.updated_at.desc()))
+        .limit(RECENT_LIMIT)
+        .all()
+    ):
+        recent.append(_recent_pr(run, "code_review"))
+
+    for run in (
+        db.query(AddressPrRun)
+        .filter(AddressPrRun.status.in_(_TERMINAL_STATUSES))
+        .order_by(nullslast(AddressPrRun.updated_at.desc()))
+        .limit(RECENT_LIMIT)
+        .all()
+    ):
+        recent.append(_recent_pr(run, "address_pr"))
+
+    for run in (
+        db.query(PlannerRun)
+        .filter(PlannerRun.status.in_(_TERMINAL_STATUSES))
+        .order_by(nullslast(PlannerRun.updated_at.desc()))
+        .limit(RECENT_LIMIT)
+        .all()
+    ):
+        recent.append(_recent_planner(run))
+
+    recent.sort(key=lambda i: i.get("finished_at") or datetime.min, reverse=True)
+    return recent[:RECENT_LIMIT]
+
+
 def build_overview(db: Session) -> dict:
     now = datetime.utcnow()
 
@@ -187,4 +315,5 @@ def build_overview(db: Session) -> dict:
         "runners": runners,
         "current": current,
         "queued": queued,
+        "recent": _build_recent(db),
     }
