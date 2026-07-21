@@ -4,6 +4,7 @@ The API is the control plane (stores runs/steps, serves the UI). The host
 runner is the execution plane (claims queued runs, executes steps, patches
 status back). No credential is stored here — only references.
 """
+import json
 import re
 from datetime import datetime
 from uuid import UUID
@@ -303,11 +304,19 @@ def update_step(
             run.claimed_by = None
             run.claimed_at = None
             conn = run.connection
+            action_value = json.dumps({"run_id": str(run.id), "step_id": str(step.id)})
             events.emit_event(
                 db,
                 source="code_review",
                 event_type="awaiting_approval",
                 title=f"Review pronta: PR {run.pr_number or run.pr_url}",
+                notify_detail=events.build_awaiting_detail("code_review", run, step),
+                notify_actions=[
+                    {"text": "✅ Aprovar e postar", "action_id": "cr_approve",
+                     "style": "primary", "value": action_value},
+                    {"text": "🗑️ Descartar", "action_id": "cr_discard",
+                     "style": "danger", "value": action_value},
+                ],
                 connection_name=conn.display_name if conn else None,
                 ref_kind="code_review_run",
                 ref_id=run.id,

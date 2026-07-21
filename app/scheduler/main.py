@@ -134,6 +134,10 @@ def maybe_send_daily_digest(db) -> None:
 
 async def main() -> None:
     logger.info("Scheduler started (interval=%ds)", INTERVAL_SECONDS)
+    # Open the Slack Socket Mode connection once at startup so interactive
+    # approval buttons work (no-op if SLACK_APP_TOKEN isn't set). Non-blocking.
+    from app.slack.actions import start_socket_mode
+    start_socket_mode()
     run_cycle()
     while True:
         await asyncio.sleep(INTERVAL_SECONDS)

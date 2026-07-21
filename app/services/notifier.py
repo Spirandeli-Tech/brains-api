@@ -8,9 +8,16 @@ present), mirroring `RUNNER_TOKEN` — there is no per-user preference row becau
 
 Every send is best-effort: a Slack outage logs a warning, never raises, and
 never blocks the run whose event triggered it. Routing lives in
-`NOTIFY_EVENT_TYPES`: `awaiting_approval` / `proposal_created` / `run_failed`
-reach out; `run_started` and the rest stay silent (visible in the UI, not worth
-a ping).
+`_target_channel`, by category to a dedicated channel (fase 3.1):
+- `run_failed` (any source) → failures channel
+- `awaiting_approval` / `proposal_created` → approvals channel
+- `run_finished` from `code_review` → code-review channel
+- the daily digest → its own channel
+Precedence is by event_type first, so a code-review awaiting approval lands in
+the approvals channel, not the code-review one. Each category falls back to the
+operator DM when its channel env var is empty — so an unconfigured deployment
+behaves exactly like the old single-DM notifier. `run_started` and other
+finishes stay silent (visible in the UI, not worth a ping).
 
 Future (fase 4): make it two-way via Socket Mode — the app-level token already
 issued for this app receives `message.im` events with no public URL, and a
@@ -30,14 +37,11 @@ logger = logging.getLogger(__name__)
 SLACK_API = "https://slack.com/api"
 _TIMEOUT_SECONDS = 5.0
 
-# The only event_types worth a proactive ping. Everything else is UI-only, so a
-# busy day doesn't turn into a stream of Slack noise.
-NOTIFY_EVENT_TYPES = {"awaiting_approval", "proposal_created", "run_failed"}
-
 _EMOJI = {
     "awaiting_approval": "⏳",
     "proposal_created": "💡",
     "run_failed": "⚠️",
+    "run_finished": "✅",
 }
 
 # Kept local (not imported from platform_events_service) to avoid a circular
@@ -96,15 +100,57 @@ def _deep_link(url_path: str | None) -> str | None:
     return f"{base}{url_path}" if base else None
 
 
-def _send(text: str) -> None:
-    """Post a mrkdwn message to the operator's DM. No-op if unconfigured or the
-    DM channel can't be resolved."""
-    if not is_configured():
-        return
-    channel = _dm()
+def _send(text: str, channel: str | None, blocks: list[dict] | None = None) -> None:
+    """Post a mrkdwn message to a resolved Slack channel id. No-op if the channel
+    couldn't be resolved (unconfigured / DM open failed). When `blocks` is given,
+    `text` is sent as the notification fallback and the blocks carry the layout
+    (needed for interactive buttons)."""
     if not channel:
         return
-    _post("chat.postMessage", {"channel": channel, "text": text})
+    payload: dict = {"channel": channel, "text": text}
+    if blocks:
+        payload["blocks"] = blocks
+    _post("chat.postMessage", payload)
+
+
+def _action_blocks(text: str, actions: list[dict]) -> list[dict]:
+    """Block Kit layout: the message text as a section, then a row of buttons.
+
+    Each action is {text, action_id, style?, value} — `value` carries the run/step
+    ids the Socket Mode handler needs to act (see app/slack/actions.py)."""
+    buttons = []
+    for a in actions:
+        btn = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": a["text"], "emoji": True},
+            "action_id": a["action_id"],
+            "value": a.get("value", ""),
+        }
+        if a.get("style"):
+            btn["style"] = a["style"]
+        buttons.append(btn)
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "actions", "elements": buttons},
+    ]
+
+
+def _target_channel(event_type: str, source: str) -> str | None:
+    """Resolve the channel id for an event, or None if it shouldn't notify.
+
+    Precedence is by event_type (failures, then approvals) before source, so a
+    code-review awaiting approval routes to the approvals channel. Each category
+    falls back to the operator DM when its channel env var is empty.
+    """
+    if event_type == "run_failed":
+        configured = settings.SLACK_CHANNEL_FAILURES
+    elif event_type in ("awaiting_approval", "proposal_created"):
+        configured = settings.SLACK_CHANNEL_APPROVALS
+    elif event_type == "run_finished" and source == "code_review":
+        configured = settings.SLACK_CHANNEL_CODE_REVIEW
+    else:
+        return None  # UI-only — not worth a ping
+    return configured or _dm()
 
 
 def notify_event(
@@ -113,15 +159,26 @@ def notify_event(
     source: str,
     title: str,
     summary: str | None = None,
+    detail: str | None = None,
+    actions: list[dict] | None = None,
     connection_name: str | None = None,
     url_path: str | None = None,
 ) -> None:
-    """Best-effort DM for one routed platform event. Called from emit_event.
+    """Best-effort Slack ping for one routed platform event. Called from
+    emit_event.
+
+    `detail` is a pre-formatted mrkdwn block (built by the caller from the run +
+    step) with the extra context needed to act from the phone — who opened it,
+    which repo, and the drafted review/fixes/plan. It's Slack-only (not stored on
+    the event), so the UI feed stays terse while the ping is self-contained.
 
     Silently returns for non-routed event_types and when Slack isn't configured,
     so the emit_event call site stays a plain one-liner.
     """
-    if event_type not in NOTIFY_EVENT_TYPES or not is_configured():
+    if not is_configured():
+        return
+    channel = _target_channel(event_type, source)
+    if not channel:
         return
 
     emoji = _EMOJI.get(event_type, "🔔")
@@ -135,11 +192,20 @@ def notify_event(
     if context:
         lines.append(f"_{context}_")
 
+    if detail:
+        lines.append(detail)
+
     link = _deep_link(url_path)
     if link:
         lines.append(f"<{link}|Abrir no Brains →>")
 
-    _send("\n".join(lines))
+    text = "\n".join(lines)
+    # Only render buttons when Socket Mode can actually handle the click — an
+    # app-level token must be configured (the listener runs in the scheduler).
+    # Otherwise the message would show inert buttons.
+    show_actions = bool(actions and settings.SLACK_APP_TOKEN)
+    blocks = _action_blocks(text, actions) if show_actions else None
+    _send(text, channel, blocks)
 
 
 def notify_digest(briefing: dict) -> None:
@@ -148,6 +214,7 @@ def notify_digest(briefing: dict) -> None:
     if not is_configured():
         return
 
+    channel = settings.SLACK_CHANNEL_DIGEST or _dm()
     lines = ["☀️ *Resumo do dia*", briefing.get("narrative") or "Bom dia."]
 
     def _section(header: str, items: list[dict]) -> None:
@@ -169,4 +236,4 @@ def notify_digest(briefing: dict) -> None:
         lines.append("")
         lines.append(f"<{link}|Abrir o briefing →>")
 
-    _send("\n".join(lines))
+    _send("\n".join(lines), channel)

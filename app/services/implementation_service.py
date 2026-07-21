@@ -404,6 +404,7 @@ def update_step(
                 source="implementation",
                 event_type="awaiting_approval",
                 title=f"Aprovação pendente ({step.kind}): {run.ticket_key or run.ticket_url}",
+                notify_detail=events.build_awaiting_detail("implementation", run, step),
                 connection_name=conn.display_name if conn else None,
                 ref_kind="implementation_run",
                 ref_id=run.id,

@@ -47,6 +47,8 @@ def emit_event(
     event_type: str,
     title: str,
     summary: str | None = None,
+    notify_detail: str | None = None,
+    notify_actions: list[dict] | None = None,
     connection_name: str | None = None,
     ref_kind: str | None = None,
     ref_id: str | UUID | None = None,
@@ -65,17 +67,20 @@ def emit_event(
     )
     db.add(event)
 
-    # Best-effort Slack DM for routed event types. Wrapped defensively so a
-    # notifier bug can never break the run whose event we're recording; the
-    # notifier itself already swallows network/API errors. Fires before commit
-    # (there's no post-commit hook), which is fine at this volume — the caller
-    # commits moments later and rollbacks here are vanishingly rare.
+    # Best-effort Slack ping for routed event types. `notify_detail` is passed
+    # through to the notifier only (never persisted on the event) so the Slack
+    # message can be self-contained while the UI feed stays terse. Wrapped
+    # defensively so a notifier bug can never break the run whose event we're
+    # recording; the notifier itself already swallows network/API errors. Fires
+    # before commit (there's no post-commit hook), which is fine at this volume.
     try:
         notifier.notify_event(
             event_type=event_type,
             source=source,
             title=title,
             summary=summary,
+            detail=notify_detail,
+            actions=notify_actions,
             connection_name=connection_name,
             url_path=url_path,
         )
@@ -83,6 +88,75 @@ def emit_event(
         logger.exception("notify_event failed for %s/%s", source, event_type)
 
     return event
+
+
+def _blockquote(text: str, *, max_chars: int = 1600) -> str:
+    """Render text as a Slack mrkdwn blockquote, truncated for phone reading."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "\n…(truncado — abra no Brains pra ver tudo)"
+    return "\n".join(f"> {line}" for line in text.splitlines())
+
+
+def build_awaiting_detail(source: str, run, step) -> str | None:
+    """A Slack-only mrkdwn block with everything needed to act on an
+    `awaiting_approval` from the phone: who/where + the drafted content.
+
+    `step.log` already holds the human-readable draft the runner produced (the
+    review plan, the fix plan, the implementation preview), so it doubles as the
+    "logs / resumo do que foi feito" — we just add a metadata header per source.
+    Defensive with getattr so a shape change never breaks the emit path.
+    """
+    log = (getattr(step, "log", None) or "").strip()
+    meta: list[str] = []
+
+    if source == "code_review":
+        author = getattr(run, "pr_author", None)
+        repo = getattr(run, "repo_name", None)
+        ticket = getattr(run, "ticket_key", None)
+        pr_number = getattr(run, "pr_number", None)
+        pr_url = getattr(run, "pr_url", None)
+        plan = getattr(run, "review_plan", None) or {}
+        action = plan.get("action")
+        n_comments = len(plan.get("comments") or [])
+        pr_label = f"PR #{pr_number}" if pr_number else "PR"
+        if pr_url:
+            pr_label = f"<{pr_url}|{pr_label}>"
+        meta.append(f"*{pr_label}*" + (f" · `{repo}`" if repo else ""))
+        if author:
+            meta.append(f"*Autor:* {author}")
+        if ticket:
+            meta.append(f"*Ticket:* {ticket}")
+        if action:
+            meta.append(f"*Ação sugerida:* {action} · {n_comments} comentário(s)")
+
+    elif source == "address_pr":
+        repo = getattr(run, "repo_name", None)
+        pr_number = getattr(run, "pr_number", None)
+        pr_url = getattr(run, "pr_url", None)
+        pr_label = f"PR #{pr_number}" if pr_number else "PR"
+        if pr_url:
+            pr_label = f"<{pr_url}|{pr_label}>"
+        meta.append(f"*{pr_label}*" + (f" · `{repo}`" if repo else ""))
+        if getattr(step, "kind", None):
+            meta.append(f"*Etapa:* {step.kind}")
+
+    elif source == "implementation":
+        ticket = getattr(run, "ticket_key", None)
+        ticket_url = getattr(run, "ticket_url", None)
+        ticket_label = ticket or "Ticket"
+        if ticket_url:
+            ticket_label = f"<{ticket_url}|{ticket_label}>"
+        meta.append(f"*{ticket_label}*")
+        if getattr(step, "kind", None):
+            meta.append(f"*Etapa:* {step.kind}")
+
+    header = "\n".join(meta)
+    quoted = _blockquote(log)
+    block = "\n".join(part for part in (header, quoted) if part)
+    return block or None
 
 
 def _event_read(event: PlatformEvent) -> dict:

@@ -15,6 +15,18 @@ class Settings(BaseSettings):
     # notifier no-ops, so the platform runs fine without Slack configured.
     SLACK_BOT_TOKEN: str = ""
     SLACK_USER_ID: str = ""
+    # App-level token (xapp-…, scope connections:write) for Socket Mode — lets the
+    # scheduler receive interactive button clicks (approve/discard) with no public
+    # URL. Empty disables the interactive listener; text messages still work.
+    SLACK_APP_TOKEN: str = ""
+    # Per-category channel routing (fase 3.1). Each holds a Slack channel id
+    # (e.g. "C0123ABCD") the bot has been invited to. Any left empty falls back
+    # to the operator DM (SLACK_USER_ID), so partial config just routes the
+    # channels you set and DMs the rest — matching the pre-routing behaviour.
+    SLACK_CHANNEL_APPROVALS: str = ""     # awaiting_approval + proposal_created
+    SLACK_CHANNEL_CODE_REVIEW: str = ""   # code-review runs finished
+    SLACK_CHANNEL_FAILURES: str = ""      # run_failed (any source)
+    SLACK_CHANNEL_DIGEST: str = ""        # daily morning digest
     # Base URL of the web UI, used to build deep links in Slack messages.
     WEB_BASE_URL: str = "http://localhost:3737"
 

@@ -336,6 +336,7 @@ def update_step(
                 source="address_pr",
                 event_type="awaiting_approval",
                 title=f"Fixes prontos ({step.kind}): PR {run.pr_number or run.pr_url}",
+                notify_detail=events.build_awaiting_detail("address_pr", run, step),
                 connection_name=conn.display_name if conn else None,
                 ref_kind="address_pr_run",
                 ref_id=run.id,
