@@ -79,6 +79,20 @@ def delete_watcher(
     svc.delete_watcher(db, watcher)
 
 
+@router.post("/{watcher_id}/run-now", response_model=WatcherRead)
+def run_watcher_now(
+    watcher_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    watcher = svc.get_watcher(db, watcher_id)
+    if not watcher or watcher.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Watcher not found")
+    if not watcher.enabled:
+        raise HTTPException(status_code=409, detail="Enable the watcher before running it")
+    return svc.run_now(db, watcher)
+
+
 # --- Runner-facing endpoints ---
 
 

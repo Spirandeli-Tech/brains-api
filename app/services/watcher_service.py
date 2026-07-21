@@ -91,6 +91,22 @@ def delete_watcher(db: Session, watcher: Watcher) -> None:
     db.commit()
 
 
+def run_now(db: Session, watcher: Watcher) -> dict:
+    """Make the watcher due immediately so the next runner poll claims it.
+
+    `last_run_at` doubles as the claim lease (see claim_next_watcher): clearing
+    it to NULL puts the watcher at the front of the due queue, so "run now" needs
+    no new runner path — the existing poll picks it up within one tick. No-op-ish
+    for a disabled watcher (the claim query filters enabled=true), so the caller
+    should only offer this when the watcher is enabled.
+    """
+    watcher.last_run_at = None
+    watcher.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(watcher)
+    return _serialize_watcher(watcher)
+
+
 # --- Runner-facing operations ---
 
 
