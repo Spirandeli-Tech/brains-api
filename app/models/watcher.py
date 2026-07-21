@@ -28,7 +28,8 @@ class Watcher(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    # github_review_requested | github_reviews_received | jira_backlog_assigned
+    # github_review_requested | bitbucket_review_requested | github_reviews_received
+    #   | jira_backlog_assigned
     kind = Column(String, nullable=False)
     connection_id = Column(
         UUID(as_uuid=True),

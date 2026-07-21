@@ -2,8 +2,9 @@
 
 A watcher is a runner-side check (no Claude, no cost) that polls the outside
 world on an interval and turns new findings into runs the existing pipelines
-already know how to execute. `github_review_requested` (W1) finds PRs where the
-user is a requested reviewer and creates a CodeReviewRun for each new one;
+already know how to execute. `github_review_requested` (W1, and its Bitbucket
+twin `bitbucket_review_requested`) finds PRs where the user is a requested
+reviewer and creates a CodeReviewRun for each new one;
 `github_reviews_received` (W2) finds new feedback on the user's *own* open PRs
 and creates an AddressPrRun for each. In both cases the pipeline's own steps
 (review_draft/post_review, or fix_draft/commit_push/post_replies) are what pause
@@ -200,7 +201,7 @@ def report_watcher_tick(
                 )
                 continue
 
-            if watcher.kind == "github_review_requested":
+            if watcher.kind in ("github_review_requested", "bitbucket_review_requested"):
                 # A per-watcher sighting row already dedups this watcher across
                 # ticks; this second guard dedups across watchers (two watchers
                 # on the same repo) and closes the resurfacing-while-open case —
