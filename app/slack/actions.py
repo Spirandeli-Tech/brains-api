@@ -51,18 +51,62 @@ def start_socket_mode() -> None:
 def _handle(client, req) -> None:
     from slack_sdk.socket_mode.response import SocketModeResponse
 
-    if req.type != "interactive":
+    if req.type not in ("interactive", "events_api"):
         return
-    # Ack every interactive envelope immediately (Slack requires < 3s), then work.
+    # Ack every envelope immediately (Slack requires < 3s), then do the work.
     client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
 
     payload = req.payload or {}
-    if payload.get("type") != "block_actions":
-        return
     try:
-        _dispatch(client, payload)
+        if req.type == "interactive" and payload.get("type") == "block_actions":
+            _dispatch(client, payload)
+        elif req.type == "events_api":
+            event = payload.get("event") or {}
+            if event.get("type") == "message":
+                _handle_message(client, event)
     except Exception:  # noqa: BLE001
-        logger.exception("Slack action handler failed")
+        logger.exception("Slack handler failed")
+
+
+def _handle_message(client, event: dict) -> None:
+    """Operator DM to the bot → interpret it (LLM on the runner) and act.
+
+    Ignores the bot's own echoes, edits/joins (subtype), non-DM channels, and
+    anyone who isn't the configured operator. Kicks off an ephemeral
+    /slack-dispatch run and acks on the same DM; the completion hook
+    (app/slack/dispatch.py) turns the decision into a tracked pipeline."""
+    if event.get("bot_id") or event.get("subtype"):
+        return
+    if event.get("channel_type") != "im":
+        return
+    user_id = event.get("user")
+    if settings.SLACK_USER_ID and user_id != settings.SLACK_USER_ID:
+        return
+    text = (event.get("text") or "").strip()
+    channel = event.get("channel")
+    ts = event.get("ts")
+    if not text or not channel:
+        return
+
+    from app.core.db import SessionLocal
+    from app.models.user import User
+    from app.services import automation_service, notifier
+
+    db = SessionLocal()
+    try:
+        operator = db.query(User).order_by(User.created_at.asc()).first()
+        if operator is None:
+            return
+        automation_service.create_ephemeral_run(db, operator.id, {
+            "skill": "/slack-dispatch",
+            "instructions": text,
+            "name": f"Slack: {text[:60]}",
+            "claude_model": "haiku",
+            "meta": {"source": "slack", "slack_channel": channel, "slack_ts": ts},
+        })
+        notifier.post_reply(channel, "recebi 🧠 interpretando o pedido…", ts)
+    finally:
+        db.close()
 
 
 def _dispatch(client, payload: dict) -> None:

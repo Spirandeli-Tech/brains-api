@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time
 from pathlib import Path
 from uuid import UUID
@@ -8,6 +9,8 @@ from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 from app.models.automation import Automation
 from app.models.automation_run import AutomationRun
 from app.services import connection_registry
@@ -112,6 +115,7 @@ def create_ephemeral_run(db: Session, user_id: UUID, payload: dict) -> dict:
         frequency="manual",
         enabled=False,
         ephemeral=True,
+        meta=payload.get("meta"),
     )
     db.add(automation)
     db.commit()
@@ -269,4 +273,18 @@ def update_automation_run(db: Session, run_id: UUID, data: dict) -> dict | None:
 
     db.commit()
     db.refresh(run)
+
+    # Two-way Slack: when an ephemeral /slack-dispatch run finishes, turn the
+    # interpreted decision into a tracked pipeline + reply on the DM. Best-effort
+    # — a hiccup here must not break the status patch we just committed.
+    if run.status in ("done", "failed"):
+        automation = run.automation
+        if automation and automation.ephemeral:
+            from app.slack import dispatch
+            if automation.skill == dispatch.DISPATCH_SKILL:
+                try:
+                    dispatch.handle_dispatch_completion(db, automation, run)
+                except Exception:  # noqa: BLE001
+                    logger.exception("slack dispatch completion failed")
+
     return _serialize_run(run)

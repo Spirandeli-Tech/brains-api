@@ -35,6 +35,10 @@ class Automation(Base):
     # "manual") and is hidden from the Automations UI list. Reuses the whole
     # automation runner path without a new run type.
     ephemeral = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Free-form context carried by ephemeral runs. For Slack-sourced dispatches it
+    # holds {"source":"slack","slack_channel":…,"slack_ts":…} so the completion hook
+    # can reply on the right DM/thread without trusting the LLM to echo it back.
+    meta = Column(JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

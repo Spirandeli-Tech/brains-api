@@ -208,6 +208,17 @@ def notify_event(
     _send(text, channel, blocks)
 
 
+def post_reply(channel: str | None, text: str, thread_ts: str | None = None) -> None:
+    """Post a plain reply to a specific channel/DM (optionally threaded). Used by
+    the two-way Slack flow to answer a request on the same conversation."""
+    if not (is_configured() and channel):
+        return
+    payload: dict = {"channel": channel, "text": text}
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    _post("chat.postMessage", payload)
+
+
 def notify_digest(briefing: dict) -> None:
     """Morning digest — the /briefing rendered as a scannable Slack message,
     posted once a day by the scheduler."""
