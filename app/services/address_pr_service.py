@@ -371,6 +371,7 @@ def update_run(
                     else f"Address PR falhou: PR {run.pr_number or run.pr_url}"
                 ),
                 summary=run.error,
+                notify_detail=events.build_finished_detail("address_pr", run),
                 connection_name=conn.display_name if conn else None,
                 ref_kind="address_pr_run",
                 ref_id=run.id,

@@ -355,6 +355,7 @@ def update_run(
                     else f"Review falhou: PR {run.pr_number or run.pr_url}"
                 ),
                 summary=event_summary,
+                notify_detail=events.build_finished_detail("code_review", run),
                 connection_name=conn.display_name if conn else None,
                 ref_kind="code_review_run",
                 ref_id=run.id,

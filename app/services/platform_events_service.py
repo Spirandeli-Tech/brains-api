@@ -100,6 +100,37 @@ def _blockquote(text: str, *, max_chars: int = 1600) -> str:
     return "\n".join(f"> {line}" for line in text.splitlines())
 
 
+def build_pr_meta(run) -> list[str]:
+    """The who/where header lines shared by every PR-shaped notification
+    (code_review, address_pr): the linked PR label + repo, then the author.
+    Defensive with getattr so a shape change never breaks the emit path."""
+    meta: list[str] = []
+    author = getattr(run, "pr_author", None)
+    repo = getattr(run, "repo_name", None)
+    pr_number = getattr(run, "pr_number", None)
+    pr_url = getattr(run, "pr_url", None)
+    pr_label = f"PR #{pr_number}" if pr_number else "PR"
+    if pr_url:
+        pr_label = f"<{pr_url}|{pr_label}>"
+    meta.append(f"*{pr_label}*" + (f" · `{repo}`" if repo else ""))
+    if author:
+        meta.append(f"*Autor:* {author}")
+    return meta
+
+
+def build_finished_detail(source: str, run) -> str | None:
+    """A terse Slack-only mrkdwn header for a *finished* PR run (no draft to
+    show, and no step in hand) — just the linked PR, repo and author so the
+    ping is self-contained. Returns None for sources without a PR."""
+    if source not in ("code_review", "address_pr"):
+        return None
+    meta = build_pr_meta(run)
+    ticket = getattr(run, "ticket_key", None)
+    if ticket:
+        meta.append(f"*Ticket:* {ticket}")
+    return "\n".join(meta) or None
+
+
 def build_awaiting_detail(source: str, run, step) -> str | None:
     """A Slack-only mrkdwn block with everything needed to act on an
     `awaiting_approval` from the phone: who/where + the drafted content.
@@ -113,33 +144,18 @@ def build_awaiting_detail(source: str, run, step) -> str | None:
     meta: list[str] = []
 
     if source == "code_review":
-        author = getattr(run, "pr_author", None)
-        repo = getattr(run, "repo_name", None)
         ticket = getattr(run, "ticket_key", None)
-        pr_number = getattr(run, "pr_number", None)
-        pr_url = getattr(run, "pr_url", None)
         plan = getattr(run, "review_plan", None) or {}
         action = plan.get("action")
         n_comments = len(plan.get("comments") or [])
-        pr_label = f"PR #{pr_number}" if pr_number else "PR"
-        if pr_url:
-            pr_label = f"<{pr_url}|{pr_label}>"
-        meta.append(f"*{pr_label}*" + (f" · `{repo}`" if repo else ""))
-        if author:
-            meta.append(f"*Autor:* {author}")
+        meta.extend(build_pr_meta(run))
         if ticket:
             meta.append(f"*Ticket:* {ticket}")
         if action:
             meta.append(f"*Ação sugerida:* {action} · {n_comments} comentário(s)")
 
     elif source == "address_pr":
-        repo = getattr(run, "repo_name", None)
-        pr_number = getattr(run, "pr_number", None)
-        pr_url = getattr(run, "pr_url", None)
-        pr_label = f"PR #{pr_number}" if pr_number else "PR"
-        if pr_url:
-            pr_label = f"<{pr_url}|{pr_label}>"
-        meta.append(f"*{pr_label}*" + (f" · `{repo}`" if repo else ""))
+        meta.extend(build_pr_meta(run))
         if getattr(step, "kind", None):
             meta.append(f"*Etapa:* {step.kind}")
 
