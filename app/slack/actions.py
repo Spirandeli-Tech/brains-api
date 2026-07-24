@@ -68,13 +68,45 @@ def _handle(client, req) -> None:
         logger.exception("Slack handler failed")
 
 
+def _resolve_operator(db):
+    """The brains user that Slack-initiated work is recorded under.
+
+    Slack has a single configured operator (SLACK_USER_ID), and everything they
+    DM lands here as a tracked run — so this only has to answer "which row owns
+    it". It used to be `order_by(created_at).first()`, i.e. whoever happened to
+    be the oldest row, which silently filed months of the operator's own Slack
+    work under an unrelated CLIENT account that predated theirs by 8 minutes.
+
+    Prefer the ADMIN, fall back to the oldest remaining account, and never pick a
+    soft-deleted one.
+    """
+    from app.models.user import User
+    from app.models.user_role import UserRole
+
+    base = db.query(User).filter(User.deleted_at.is_(None))
+    admin = (
+        base.join(UserRole, UserRole.id == User.role_id)
+        .filter(UserRole.name == "ADMIN")
+        .order_by(User.created_at.asc())
+        .first()
+    )
+    return admin or base.order_by(User.created_at.asc()).first()
+
+
 def _handle_message(client, event: dict) -> None:
-    """Operator DM to the bot → interpret it (LLM on the runner) and act.
+    """Operator DM to Aurora → interpret it (LLM on the runner) and act.
 
     Ignores the bot's own echoes, edits/joins (subtype), non-DM channels, and
     anyone who isn't the configured operator. Kicks off an ephemeral
-    /slack-dispatch run and acks on the same DM; the completion hook
-    (app/slack/dispatch.py) turns the decision into a tracked pipeline."""
+    /slack-dispatch run; the completion hook (app/slack/dispatch.py) turns the
+    decision into either a tracked pipeline or a conversational reply, always in
+    Aurora's voice.
+
+    We deliberately don't post a canned "recebi…" text ack — that made every DM,
+    even plain small talk, read as two robotic messages. Instead we drop a best-
+    effort 👀 reaction on Lucas's message as a quiet "vi isso" signal, then let
+    Aurora answer once with the real reply. If the reaction scope isn't granted,
+    it's a no-op and the flow still works."""
     if event.get("bot_id") or event.get("subtype"):
         return
     if event.get("channel_type") != "im":
@@ -89,12 +121,11 @@ def _handle_message(client, event: dict) -> None:
         return
 
     from app.core.db import SessionLocal
-    from app.models.user import User
-    from app.services import automation_service, notifier
+    from app.services import automation_service
 
     db = SessionLocal()
     try:
-        operator = db.query(User).order_by(User.created_at.asc()).first()
+        operator = _resolve_operator(db)
         if operator is None:
             return
         automation_service.create_ephemeral_run(db, operator.id, {
@@ -104,7 +135,11 @@ def _handle_message(client, event: dict) -> None:
             "claude_model": "haiku",
             "meta": {"source": "slack", "slack_channel": channel, "slack_ts": ts},
         })
-        notifier.post_reply(channel, "recebi 🧠 interpretando o pedido…", ts)
+        if ts:
+            try:
+                client.web_client.reactions_add(channel=channel, timestamp=ts, name="eyes")
+            except Exception:  # noqa: BLE001 — missing scope / already reacted: harmless
+                pass
     finally:
         db.close()
 

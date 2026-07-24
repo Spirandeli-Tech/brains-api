@@ -81,51 +81,51 @@ def handle_dispatch_completion(db: Session, automation, run) -> None:
         notifier.post_reply(channel, text, thread_ts)
 
     if run.status == "failed":
-        reply("⚠️ Não consegui interpretar o pedido (a análise falhou). Tenta de novo?")
+        reply("Deu um nó aqui e não consegui processar, chefe. Manda de novo?")
         return
 
     action = _parse_action(run.result_summary)
     if not action:
-        reply("🤔 Não entendi como uma ação. Manda de novo com o link do PR e o que "
-              "você quer (ex.: “endereça os feedbacks desse PR <link>”).")
+        reply("Me perdi nesse — manda de novo? Se for pra mexer num PR, joga o link junto.")
         return
 
     kind = (action.get("action") or "chat").strip()
     if kind == "chat":
-        reply(action.get("reply") or "Beleza!")
+        # Aurora's own conversational reply, written by the /slack-dispatch skill.
+        reply(action.get("reply") or "Tô por aqui, chefe.")
         return
 
     pr_url = (action.get("pr_url") or "").strip()
     conn, repo_name = resolve_connection_from_url(db, pr_url)
     if conn is None:
-        reply(f"Achei o pedido, mas não tenho conexão configurada pra `{pr_url or 'esse link'}`. "
-              "Confere se a org está conectada no Brains.")
+        reply(f"Peguei o pedido, mas não tenho conexão configurada pra `{pr_url or 'esse link'}`, chefe. "
+              "Confere se a org tá conectada no Brains que eu toco.")
         return
 
     pr_number = code_review_service.pr_number_from_url(pr_url) or "?"
     try:
         if kind == "address_pr":
             if address_pr_service.has_active_run_for_pr(db, pr_url):
-                reply(f"Já tem um address-PR ativo pro PR #{pr_number} em `{repo_name}` — não abri outro.")
+                reply(f"Já tem um address-PR rodando no #{pr_number} (`{repo_name}`) — não vou abrir outro em cima.")
                 return
             address_pr_service.launch_run(
                 db, user_id=automation.user_id, connection_id=conn.id,
                 pr_url=pr_url, repo_name=repo_name,
             )
-            reply(f"🛠️ Abrindo o *address-PR* do PR #{pr_number} em `{repo_name}` — "
-                  "te aviso quando os fixes estiverem prontos pra revisar.")
+            reply(f"Deixa comigo 🛠️ — endereçando os feedbacks do #{pr_number} em `{repo_name}`. "
+                  "Te chamo quando os fixes estiverem prontos pra você revisar.")
         elif kind == "code_review":
             if code_review_service.has_active_run_for_pr(db, pr_url):
-                reply(f"Já tem uma review ativa pro PR #{pr_number} em `{repo_name}` — não abri outra.")
+                reply(f"Já tem uma review rodando no #{pr_number} (`{repo_name}`) — não vou abrir outra em cima.")
                 return
             code_review_service.launch_run(
                 db, user_id=automation.user_id, connection_id=conn.id,
                 pr_url=pr_url, repo_name=repo_name,
             )
-            reply(f"🔍 Abrindo a *review* do PR #{pr_number} em `{repo_name}` — "
-                  "te mando a review pra aprovar quando ficar pronta.")
+            reply(f"Pode deixar 🔍 — revisando o #{pr_number} em `{repo_name}`. "
+                  "Te mando pra aprovar assim que ficar pronta.")
         else:
-            reply(action.get("reply") or f"Não sei tratar a ação “{kind}” ainda.")
+            reply(action.get("reply") or f"Essa de “{kind}” ainda não tá na minha mão, chefe.")
     except Exception as e:  # noqa: BLE001
         logger.exception("slack dispatch launch failed")
-        reply(f"⚠️ Deu ruim ao abrir o pipeline: {e}")
+        reply(f"Tentei abrir o pipeline e travou aqui, chefe: {e}")
