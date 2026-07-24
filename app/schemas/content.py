@@ -10,6 +10,21 @@ from pydantic import BaseModel
 # --- Ideas ---
 
 
+class IdeaCheckRead(BaseModel):
+    """Um check já resolvido: a definição (vinda do serviço) + o veredito."""
+
+    key: str
+    label: str
+    # Qual regra do principios-video.md/persona ele cobra
+    rule: str
+    blocking: bool
+    derived: bool
+    help: str
+    # pass | partial | fail | unknown
+    state: str
+    note: str | None
+
+
 class IdeaRead(BaseModel):
     id: UUID
     slug: str
@@ -23,7 +38,14 @@ class IdeaRead(BaseModel):
     visual_refs: str | None
     trustworthy: bool
     fact_check: str | None
-    theme_filter: dict
+    # Score e gate são calculados no serviço (score_idea) para que tabela e página
+    # de detalhe nunca discordem — a UI não recalcula nada.
+    score: int
+    # approved | at_risk | unassessed | rejected. O gate manda mais que o score:
+    # o filtro de tema é eliminatório no principios-video.md.
+    gate: str
+    checks: list[IdeaCheckRead]
+    blocking_failed: list[str]
     source: str
     video_count: int
     created_at: datetime
@@ -45,7 +67,7 @@ class IdeaCreate(BaseModel):
     visual_refs: str | None = None
     trustworthy: bool | None = None
     fact_check: str | None = None
-    theme_filter: dict | None = None
+    checks: dict | None = None
     source: str | None = None
 
 
@@ -61,7 +83,7 @@ class IdeaUpdate(BaseModel):
     visual_refs: str | None = None
     trustworthy: bool | None = None
     fact_check: str | None = None
-    theme_filter: dict | None = None
+    checks: dict | None = None
 
 
 class IdeaTopicRead(BaseModel):

@@ -32,6 +32,128 @@ VIDEO_STATUSES = ["idea", "script_ready", "recorded", "edited", "published"]
 
 IDEA_STATUSES = ["idea", "review", "promoted", "discarded"]
 
+CHECK_STATES = ["pass", "partial", "fail", "unknown"]
+_STATE_VALUE = {"pass": 1.0, "partial": 0.5, "fail": 0.0, "unknown": 0.0}
+
+# The scoring checks. Every one traces to a rule that already exists in
+# brand/principios-video.md or in the active persona — none was invented for the
+# dashboard, so the score can't drift away from the doc it claims to enforce.
+#
+# `blocking` matters more than the score: the doc declares the theme filter
+# (#9/#10/#11) *eliminatory* — "sim nas três ou não grava". A pure percentage
+# would let a 65% idea read as "almost good" and quietly turn that rule into
+# decoration, so a failed blocking check rejects the idea regardless of score.
+IDEA_CHECKS = [
+    {
+        "key": "scene",
+        "label": "Cena real",
+        "rule": "#4 · persona",
+        "blocking": False,
+        "derived": False,
+        "help": (
+            "Existe uma história marcante do Lucas pra sustentar? "
+            "Sem cena não é ideia, é tese."
+        ),
+    },
+    {
+        "key": "demand",
+        "label": "Demanda",
+        "rule": "#9",
+        "blocking": True,
+        "derived": False,
+        "help": (
+            "Apetite comprovado: trend em alta OU vídeo do mesmo tópico com boa "
+            "tração (medir com integrations/youtube_search). Não vale "
+            "'eu acho interessante'."
+        ),
+    },
+    {
+        "key": "angle",
+        "label": "Ângulo",
+        "rule": "#10",
+        "blocking": True,
+        "derived": False,
+        "help": (
+            "Escreva numa linha a versão óbvia deste vídeo. Se a nossa é igual, "
+            "não tem ângulo — o ângulo é a distância entre as duas."
+        ),
+    },
+    {
+        "key": "value",
+        "label": "Valor imediato",
+        "rule": "#11",
+        "blocking": True,
+        "derived": False,
+        "help": (
+            "Nomeie em uma frase o que muda pra pessoa antes do dia acabar. "
+            "Se não dá pra nomear, não tem valor — tem só assunto."
+        ),
+    },
+    {
+        "key": "facts",
+        "label": "Fato verificado",
+        "rule": "restrições de fato",
+        "blocking": True,
+        # Derivado de `trustworthy` em vez de mantido à mão: os dois significam a
+        # mesma coisa, e duas fontes pro mesmo fato divergem com o tempo.
+        "derived": True,
+        "help": (
+            "Versículos, números e citações conferidos. Espelha o campo "
+            "`trustworthy` — pendência aqui bloqueia o roteiro."
+        ),
+    },
+]
+
+_CHECKS_BY_KEY = {c["key"]: c for c in IDEA_CHECKS}
+
+
+def score_idea(idea: Idea) -> dict:
+    """Nota + veredito de gate de uma ideia.
+
+    O gate não é o score: um check bloqueante reprovado rejeita a ideia mesmo com
+    nota alta, e nenhum check avaliado devolve `unassessed` em vez de `rejected` —
+    "não sei" e "não presta" são coisas diferentes e a UI precisa distingui-las.
+    """
+    stored = idea.checks or {}
+    resolved, total = [], 0.0
+
+    for definition in IDEA_CHECKS:
+        key = definition["key"]
+        entry = stored.get(key) or {}
+        note = entry.get("note")
+
+        if definition["derived"] and key == "facts":
+            state = "pass" if idea.trustworthy else "fail"
+            note = note or (idea.fact_check or None)
+        else:
+            state = entry.get("state") or "unknown"
+            if state not in _STATE_VALUE:
+                state = "unknown"
+
+        total += _STATE_VALUE[state]
+        resolved.append({**definition, "state": state, "note": note})
+
+    score = round(100 * total / len(IDEA_CHECKS))
+    blocking_failed = [c["key"] for c in resolved if c["blocking"] and c["state"] == "fail"]
+    unknown = [c["key"] for c in resolved if c["state"] == "unknown"]
+
+    if blocking_failed:
+        gate = "rejected"
+    elif unknown:
+        gate = "unassessed"
+    elif any(c["blocking"] and c["state"] == "partial" for c in resolved):
+        gate = "at_risk"
+    else:
+        gate = "approved"
+
+    return {
+        "score": score,
+        "gate": gate,
+        "blocking_failed": blocking_failed,
+        "unknown": unknown,
+        "checks": resolved,
+    }
+
 # Hub-and-spoke, per labs/docs/series-map.html: one long episode is the product
 # (8–15min, Sunday, never under 8min — mid-roll unlocks at 8min and long-form RPM
 # is ~27x Shorts in Brazil), and each episode yields 2–3 cuts (Tue/Fri, discovery)
@@ -72,6 +194,7 @@ def resolve_user_id(db: Session, email: str) -> UUID:
 
 
 def _serialize_idea(idea: Idea, video_count: int | None = None) -> dict:
+    scored = score_idea(idea)
     return {
         "id": idea.id,
         "slug": idea.slug,
@@ -85,7 +208,10 @@ def _serialize_idea(idea: Idea, video_count: int | None = None) -> dict:
         "visual_refs": idea.visual_refs,
         "trustworthy": idea.trustworthy,
         "fact_check": idea.fact_check,
-        "theme_filter": idea.theme_filter or {},
+        "score": scored["score"],
+        "gate": scored["gate"],
+        "checks": scored["checks"],
+        "blocking_failed": scored["blocking_failed"],
         "source": idea.source,
         "video_count": video_count if video_count is not None else len(idea.videos),
         "created_at": idea.created_at,
@@ -139,7 +265,7 @@ def create_idea(db: Session, user_id: UUID, data: dict) -> dict:
         visual_refs=data.get("visual_refs"),
         trustworthy=True if data.get("trustworthy") is None else data["trustworthy"],
         fact_check=data.get("fact_check"),
-        theme_filter=data.get("theme_filter") or {},
+        checks=data.get("checks") or {},
         source=data.get("source") or "manual",
     )
     db.add(idea)
@@ -167,7 +293,7 @@ def create_ideas_bulk(db: Session, user_id: UUID, items: list[dict]) -> list[dic
             visual_refs=item.get("visual_refs"),
             trustworthy=True if item.get("trustworthy") is None else item["trustworthy"],
             fact_check=item.get("fact_check"),
-            theme_filter=item.get("theme_filter") or {},
+            checks=item.get("checks") or {},
             source=item.get("source") or "buscar-trends",
         )
         db.add(idea)
@@ -182,9 +308,49 @@ def update_idea(db: Session, user_id: UUID, idea_id: UUID, data: dict) -> dict:
     idea = db.query(Idea).filter(Idea.id == idea_id, Idea.user_id == user_id).first()
     if not idea:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Idea not found")
+
     for field, value in data.items():
-        if value is not None:
+        if value is None:
+            continue
+        if field == "checks":
+            # MERGE, não substituição: a UI manda apenas o check que foi tocado,
+            # então trocar o dict inteiro apagaria os vereditos dos outros quatro.
+            # Merge é por chave e raso de propósito — cada check é {state, note},
+            # e mandar só `state` preserva a `note` que já estava lá.
+            merged = dict(idea.checks or {})
+            for key, patch in (value or {}).items():
+                if key not in _CHECKS_BY_KEY:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Check desconhecido: '{key}'. "
+                            f"Válidos: {', '.join(_CHECKS_BY_KEY)}"
+                        ),
+                    )
+                if _CHECKS_BY_KEY[key]["derived"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"O check '{key}' é derivado e não se edita direto — "
+                            "mude o campo que ele espelha (trustworthy)."
+                        ),
+                    )
+                state = (patch or {}).get("state")
+                if state is not None and state not in CHECK_STATES:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Estado inválido '{state}'. Válidos: {', '.join(CHECK_STATES)}",
+                    )
+                entry = dict(merged.get(key) or {})
+                if state is not None:
+                    entry["state"] = state
+                if "note" in (patch or {}):
+                    entry["note"] = patch["note"]
+                merged[key] = entry
+            idea.checks = merged
+        else:
             setattr(idea, field, value)
+
     db.commit()
     db.refresh(idea)
     return _serialize_idea(idea)

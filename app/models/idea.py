@@ -56,10 +56,14 @@ class Idea(Base):
     trustworthy = Column(Boolean, nullable=False, default=True, server_default="true")
     fact_check = Column(Text, nullable=True)
 
-    # The 3-question theme gate from brand/principios-video.md (#9 demand,
-    # #10 angle, #11 immediate value). Stored so that reopening an idea weeks
-    # later shows *why* it passed instead of forcing you to reconstruct it.
-    theme_filter = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    # The scoring checks, keyed by check id: {"<key>": {"state": ..., "note": ...}}.
+    # `state` is one of pass | partial | fail | unknown and is an explicit verdict —
+    # never inferred from the note, because deriving pass/fail from free text is
+    # false rigour. The note survives so that reopening an idea weeks later shows
+    # *why* it passed instead of forcing you to reconstruct it.
+    # Definitions, weights and which ones block live in
+    # `app.services.content_service.IDEA_CHECKS`.
+    checks = Column(JSONB, nullable=False, default=dict, server_default="{}")
 
     # buscar-trends | manual
     source = Column(String, nullable=False, default="manual", server_default="manual")
