@@ -31,6 +31,9 @@ from app.models.watcher import Watcher
 from app.models.watcher_sighting import WatcherSighting
 from app.models.planner_run import PlannerRun
 from app.models.runner_heartbeat import RunnerHeartbeat
+from app.models.idea import Idea
+from app.models.video import Video
+from app.models.video_script import VideoScript
 from app.core.db import Base
 
 __all__ = [
@@ -67,5 +70,8 @@ __all__ = [
     "WatcherSighting",
     "PlannerRun",
     "RunnerHeartbeat",
+    "Idea",
+    "Video",
+    "VideoScript",
     "Base",
 ]

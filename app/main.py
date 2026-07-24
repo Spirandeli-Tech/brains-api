@@ -21,6 +21,7 @@ from app.api.proposals import router as proposals_router
 from app.api.watchers import router as watchers_router
 from app.api.insights import router as insights_router
 from app.api.runner import router as runner_router
+from app.api.content import router as content_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
 
@@ -57,3 +58,4 @@ app.include_router(proposals_router)
 app.include_router(watchers_router)
 app.include_router(insights_router)
 app.include_router(runner_router)
+app.include_router(content_router)
