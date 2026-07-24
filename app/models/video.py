@@ -39,15 +39,27 @@ class Video(Base):
         nullable=True,
     )
 
+    # Hub-and-spoke: cuts and the podcast point at the episode they came from.
+    # Deleting the episode takes its derivatives with it — a cut has no meaning
+    # without the piece it was cut from.
+    parent_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("videos.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
     title = Column(String, nullable=False)
     slug = Column(String, nullable=True)
     # The single expression we want to own in search (principle #6). Repeated in
     # the first 5s, the middle, the close, the title and the description.
     keyword = Column(String, nullable=True)
 
-    # short | video — the two tiers of principle #7 (Short captures, longer
-    # piece deepens)
-    format = Column(String, nullable=False, default="short", server_default="short")
+    # episode (8–15min, the product) | short (2–3 cuts per episode, discovery)
+    # | podcast (the audio track). See labs/docs/series-map.html — the long piece
+    # is the product and everything else derives from it: long-form RPM is ~27x
+    # Shorts in Brazil, mid-roll unlocks at 8min, and 10 minutes of attention
+    # converts to the devotional far better than 60 seconds.
+    format = Column(String, nullable=False, default="episode", server_default="episode")
 
     series = Column(String, nullable=True)
     episode_number = Column(Integer, nullable=True)
@@ -73,3 +85,10 @@ class Video(Base):
         cascade="all, delete-orphan",
         order_by="desc(VideoScript.version)",
     )
+    derivatives = relationship(
+        "Video",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        order_by="Video.publish_date",
+    )
+    parent = relationship("Video", back_populates="derivatives", remote_side=[id])

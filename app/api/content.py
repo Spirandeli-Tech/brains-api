@@ -7,6 +7,7 @@ labs skills (`/social-buscar-trends`, `/social-roteirizar-ideia`) call the
 email because there is no session to infer it from and this database has several
 users.
 """
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -17,6 +18,8 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User
 from app.schemas.content import (
+    CadenceWeek,
+    DerivativeCreate,
     IdeaCreate,
     IdeaRead,
     IdeaTopicRead,
@@ -120,10 +123,27 @@ def promote_idea(
 @router.get("/videos", response_model=list[VideoRead])
 def list_videos(
     status_filter: str | None = None,
+    format_filter: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return svc.list_videos(db, current_user.id, status_filter)
+    return svc.list_videos(db, current_user.id, status_filter, format_filter)
+
+
+@router.get("/cadence", response_model=list[CadenceWeek])
+def get_cadence(
+    weeks: int = 6,
+    start: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Scheduled versus planned, week by week — the gaps are the point."""
+    if not 1 <= weeks <= 26:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="weeks must be between 1 and 26",
+        )
+    return svc.cadence(db, current_user.id, weeks, start)
 
 
 @router.post("/videos", response_model=VideoRead, status_code=status.HTTP_201_CREATED)
@@ -162,6 +182,30 @@ def delete_video(
 ):
     svc.delete_video(db, current_user.id, video_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/videos/{video_id}/derivatives", response_model=list[VideoRead])
+def list_derivatives(
+    video_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return svc.get_video_derivatives(db, current_user.id, video_id)
+
+
+@router.post(
+    "/videos/{video_id}/derivatives",
+    response_model=VideoRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_derivative(
+    video_id: UUID,
+    data: DerivativeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add a cut or the podcast to an episode (2–3 cuts per episode is the plan)."""
+    return svc.create_derivative(db, current_user.id, video_id, data.model_dump(exclude_unset=True))
 
 
 # --- Scripts (user-facing) ---

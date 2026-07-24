@@ -126,6 +126,7 @@ class VideoRead(BaseModel):
     id: UUID
     idea_id: UUID | None
     idea_title: str | None
+    parent_id: UUID | None
     title: str
     slug: str | None
     keyword: str | None
@@ -140,6 +141,7 @@ class VideoRead(BaseModel):
     retention_48h: Decimal | None
     learning: str | None
     script_count: int
+    derivative_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -149,6 +151,32 @@ class VideoRead(BaseModel):
 
 class VideoDetailRead(VideoRead):
     scripts: list[VideoScriptRead]
+    derivatives: list[VideoRead]
+
+
+class DerivativeCreate(BaseModel):
+    """A cut or podcast hanging off an episode. Inherits the episode's idea,
+    keyword and series when not given."""
+
+    format: str = "short"
+    title: str | None = None
+    keyword: str | None = None
+    publish_date: date | None = None
+    status: str | None = None
+
+
+class CadenceWeek(BaseModel):
+    week_number: int
+    starts_on: date
+    ends_on: date
+    is_current: bool
+    counts: dict[str, int]
+    target: dict[str, int]
+    missing: dict[str, int]
+    # empty | partial | complete
+    state: str
+    series: list[str]
+    video_ids: list[UUID]
 
 
 class VideoCreate(BaseModel):
