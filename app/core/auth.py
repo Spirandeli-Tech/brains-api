@@ -34,7 +34,14 @@ def get_current_user(
         )
 
     firebase_uid = decoded_token["uid"]
-    user = db.query(User).filter(User.firebase_id == firebase_uid).first()
+    # A soft-deleted user must not authenticate. Their Firebase account still
+    # exists and can still mint a valid token, so this is the only gate — and it
+    # answers with the same "User not found" as a stranger, on purpose.
+    user = (
+        db.query(User)
+        .filter(User.firebase_id == firebase_uid, User.deleted_at.is_(None))
+        .first()
+    )
 
     if not user:
         raise HTTPException(

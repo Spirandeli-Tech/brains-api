@@ -68,7 +68,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     firebase_uid = decoded_token["uid"]
 
-    user = db.query(User).filter(User.firebase_id == firebase_uid).first()
+    # Excludes soft-deleted users: without this the login would succeed and then
+    # every subsequent call would 401 in get_current_user, which reads as a
+    # broken dashboard rather than a revoked account.
+    user = (
+        db.query(User)
+        .filter(User.firebase_id == firebase_uid, User.deleted_at.is_(None))
+        .first()
+    )
 
     if not user:
         raise HTTPException(

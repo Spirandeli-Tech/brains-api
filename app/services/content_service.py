@@ -45,7 +45,9 @@ def _slugify(value: str) -> str:
 def resolve_user_id(db: Session, email: str) -> UUID:
     """Runner endpoints have no session, and this database has several users —
     so the caller names the user and we fail loudly if it does not exist."""
-    user = db.query(User).filter(User.email == email).first()
+    user = (
+        db.query(User).filter(User.email == email, User.deleted_at.is_(None)).first()
+    )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

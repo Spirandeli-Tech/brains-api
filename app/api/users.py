@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends
+from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -16,8 +19,8 @@ def list_users(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all users with their roles. Requires authentication."""
-    users = db.query(User).all()
+    """List active users with their roles. Requires authentication."""
+    users = db.query(User).filter(User.deleted_at.is_(None)).all()
     return users
 
 
@@ -88,3 +91,39 @@ def update_user_preferences(
     db.commit()
     db.refresh(prefs)
     return prefs
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def soft_delete_user(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft-delete a user: hide from listings and block authentication.
+
+    Never a hard delete — 19 of the 20 foreign keys pointing at `users.id` are
+    NO ACTION, so removing the row would either fail or force destroying
+    legitimate history (Slack pipelines, code-review runs, watchers). Setting
+    `deleted_at` keeps every owned row intact and keeps the call reversible.
+
+    Admin-only, and you cannot delete yourself — locking the last admin out of
+    their own dashboard is not a recoverable mistake from this UI.
+    """
+    if not current_user.role or current_user.role.name != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can delete users",
+        )
+    if current_user.id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account",
+        )
+
+    user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.deleted_at = datetime.utcnow()
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

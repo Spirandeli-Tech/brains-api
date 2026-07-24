@@ -18,5 +18,10 @@ class User(Base):
     photo_url = Column(String, nullable=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Soft delete: 19 of the 20 FKs pointing here are NO ACTION, so a hard
+    # delete would either fail or force destroying legitimate history. A
+    # deleted user disappears from listings and cannot authenticate, but every
+    # row it owns stays intact and the decision stays reversible.
+    deleted_at = Column(DateTime, nullable=True, index=True)
 
     role = relationship("UserRole", lazy="joined")

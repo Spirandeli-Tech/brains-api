@@ -190,6 +190,7 @@ def global_search(
         users = (
             db.query(User)
             .filter(
+                User.deleted_at.is_(None),
                 User.email.ilike(pattern)
                 | User.first_name.ilike(pattern)
                 | User.last_name.ilike(pattern),
