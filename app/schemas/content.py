@@ -198,6 +198,9 @@ class CadenceWeek(BaseModel):
     # empty | partial | complete
     state: str
     series: list[str]
+    # Números dos episódios da semana — desfaz a ambiguidade entre semana do
+    # plano (26 semanas, sem 1 = carga) e semana da série (ep1 = primeira).
+    episodes: list[int]
     video_ids: list[UUID]
 
 

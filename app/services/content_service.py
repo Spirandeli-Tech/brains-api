@@ -616,6 +616,16 @@ def cadence(
                 # rows rather than from a hardcoded calendar, so this cannot drift
                 # away from the plan doc.
                 "series": sorted({v.series for v in in_week if v.series}),
+                # Episódios da semana, por número. `week_number` conta as 26
+                # semanas do plano (sem 1 = 20/jul, a de carga), então quem lê
+                # "ep1 na sem 2" pode achar que perdeu uma semana. Mostrar o
+                # episódio resolve a ambiguidade sem mexer na numeração do plano,
+                # que é a que o Lucas usa pra planejar infoproduto e livro.
+                "episodes": sorted(
+                    v.episode_number
+                    for v in in_week
+                    if v.format == "episode" and v.episode_number is not None
+                ),
                 "video_ids": [v.id for v in in_week],
             }
         )
