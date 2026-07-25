@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     SLACK_CHANNEL_DIGEST: str = ""        # daily morning digest
     # Base URL of the web UI, used to build deep links in Slack messages.
     WEB_BASE_URL: str = "http://localhost:3737"
+    # Read-only mounts for the devocionais listing — the skills write directly to
+    # these paths on the host; the API only ever reads them, never writes.
+    DEVOCIONAL_CONTENT_DIR: str = "/data/devocional-content"
+    DEVOCIONAL_VIDEOS_DIR: str = "/data/devocional-videos"
+    DEVOCIONAL_LEDGER_PATH: str = "/data/kdp/devocional-sent.json"
 
     class Config:
         env_file = ".env"
