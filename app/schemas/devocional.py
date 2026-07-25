@@ -23,3 +23,19 @@ class DevocionalRead(BaseModel):
     video_status: str
     video_youtube_url: str | None
     video_short_youtube_url: str | None
+
+
+class DevocionalDetail(DevocionalRead):
+    """The single-reflection view — everything `DevocionalRead` has, plus the
+    full blog body (`roteiro`), the condensed Telegram message, and the
+    narrated-video fields the list doesn't need."""
+
+    tema: str | None
+    tags: list[str] = []
+    imagem: str | None
+    roteiro: str
+    telegram_mensagem: str | None
+    video_title: str | None
+    video_thumbnail_text: str | None
+    video_published_at: date | None
+    video_playlist_url: str | None

@@ -32,11 +32,12 @@ from app.core.config import settings
 _FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)\.md$")
 
 
-def _parse_frontmatter(text: str) -> dict | None:
+def _parse_markdown(text: str) -> tuple[dict, str] | None:
     parts = text.split("---", 2)
     if len(parts) < 3:
         return None
-    return yaml.safe_load(parts[1]) or {}
+    frontmatter = yaml.safe_load(parts[1]) or {}
+    return frontmatter, parts[2].strip()
 
 
 def _load_ledger() -> dict[str, datetime]:
@@ -84,10 +85,13 @@ def list_devocionais() -> list[dict]:
         slug = match.group(1)
 
         try:
-            frontmatter = _parse_frontmatter(md_path.read_text(encoding="utf-8"))
+            parsed = _parse_markdown(md_path.read_text(encoding="utf-8"))
         except yaml.YAMLError:
             continue
-        if frontmatter is None or "data" not in frontmatter:
+        if parsed is None:
+            continue
+        frontmatter, _body = parsed
+        if "data" not in frontmatter:
             continue
 
         item_date = frontmatter["data"]
@@ -123,3 +127,68 @@ def list_devocionais() -> list[dict]:
 
     rows.sort(key=lambda r: r["data"], reverse=True)
     return rows
+
+
+def get_devocional(slug: str) -> dict | None:
+    """Same merge as `list_devocionais`, for a single slug — plus the fields
+    the list doesn't need: the full blog body (`roteiro`), the condensed
+    Telegram message, and the extra narrated-video metadata."""
+    content_dir = Path(settings.DEVOCIONAL_CONTENT_DIR)
+    if not content_dir.is_dir():
+        return None
+
+    md_path = next(content_dir.glob(f"*-{slug}.md"), None)
+    if md_path is None:
+        return None
+
+    try:
+        parsed = _parse_markdown(md_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return None
+    if parsed is None:
+        return None
+    frontmatter, body = parsed
+    if "data" not in frontmatter:
+        return None
+
+    item_date = frontmatter["data"]
+    if isinstance(item_date, str):
+        item_date = date.fromisoformat(item_date)
+    publicado = bool(frontmatter.get("publicado", False))
+    today = date.today()
+    if not publicado:
+        blog_status = "draft"
+    elif item_date > today:
+        blog_status = "scheduled"
+    else:
+        blog_status = "published"
+
+    video = _load_video_meta().get(slug)
+    long_info = (video or {}).get("long") or {}
+    short_info = (video or {}).get("short") or {}
+    published_at = video.get("published_at") if video else None
+    if isinstance(published_at, str):
+        published_at = date.fromisoformat(published_at)
+
+    return {
+        "slug": slug,
+        "titulo": frontmatter.get("titulo", slug),
+        "data": item_date,
+        "versiculo": frontmatter.get("versiculo"),
+        "resumo": frontmatter.get("resumo"),
+        "blog_url": f"https://devocional.spirandeli.com/conteudos/{slug}",
+        "blog_status": blog_status,
+        "telegram_sent_at": _load_ledger().get(slug),
+        "video_status": (video or {}).get("status", "none"),
+        "video_youtube_url": long_info.get("youtube_url"),
+        "video_short_youtube_url": short_info.get("youtube_url"),
+        "tema": frontmatter.get("tema"),
+        "tags": frontmatter.get("tags") or [],
+        "imagem": frontmatter.get("imagem"),
+        "roteiro": body,
+        "telegram_mensagem": frontmatter.get("telegram"),
+        "video_title": video.get("title") if video else None,
+        "video_thumbnail_text": video.get("thumbnail_text") if video else None,
+        "video_published_at": published_at,
+        "video_playlist_url": video.get("playlist_url") if video else None,
+    }
