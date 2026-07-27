@@ -33,6 +33,7 @@ def _serialize_run(run: AutomationRun) -> dict:
         "scheduled_for": run.scheduled_for,
         "status": run.status,
         "is_manual": run.is_manual,
+        "phase": run.phase,
         "log": run.log,
         "result_summary": run.result_summary,
         "error": run.error,
@@ -59,6 +60,7 @@ def _serialize_automation(automation: Automation, recent_runs_limit: int = 5) ->
         "days_of_week": automation.days_of_week,
         "time_of_day": automation.time_of_day.strftime("%H:%M:%S") if automation.time_of_day else "08:00:00",
         "enabled": automation.enabled,
+        "requires_approval": automation.requires_approval,
         "created_at": automation.created_at,
         "updated_at": automation.updated_at,
         "recent_runs": [_serialize_run(r) for r in runs],
@@ -139,6 +141,7 @@ def create_automation(db: Session, user_id: UUID, data: dict) -> dict:
         days_of_week=data.get("days_of_week"),
         time_of_day=time_of_day,
         enabled=True,
+        requires_approval=bool(data.get("requires_approval", False)),
     )
     db.add(automation)
     db.commit()
@@ -150,8 +153,12 @@ def get_automation(db: Session, automation_id: UUID) -> Automation | None:
     return db.query(Automation).filter(Automation.id == automation_id).first()
 
 
+def get_automation_run(db: Session, run_id: UUID) -> AutomationRun | None:
+    return db.query(AutomationRun).filter(AutomationRun.id == run_id).first()
+
+
 def update_automation(db: Session, automation: Automation, data: dict) -> dict:
-    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "claude_model", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled"):
+    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "claude_model", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled", "requires_approval"):
         if field in data and data[field] is not None:
             setattr(automation, field, data[field])
     if "enabled" in data and data["enabled"] is not None:
@@ -196,6 +203,9 @@ def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
             AutomationRun.status == "pending",
             or_(
                 AutomationRun.is_manual.is_(True),
+                # A phase-2 run was already approved by the user — resume it
+                # regardless of the time/enabled gate (like a manual run).
+                AutomationRun.phase == 2,
                 and_(Automation.enabled.is_(True), due),
             ),
         )
@@ -236,6 +246,8 @@ def claim_next_automation_run(db: Session, runner_id: str) -> dict | None:
         "repo_name": automation.repo_name,
         "claude_model": automation.claude_model,
         "scheduled_for": run.scheduled_for,
+        "phase": run.phase,
+        "requires_approval": automation.requires_approval,
     }
 
 
@@ -264,6 +276,24 @@ def update_automation_run(db: Session, run_id: UUID, data: dict) -> dict | None:
                 ref_id=run.id,
                 url_path=f"/automations/{automation.id}",
             )
+        elif data["status"] == "awaiting_approval":
+            # Prepare phase done, waiting for the human to approve on the board.
+            # NOT finished — release the claim so the run stops being "running",
+            # but leave finished_at unset, and emit the event that lights up the
+            # "Aguardando você" card + Slack ping.
+            run.claimed_by = None
+            automation = run.automation
+            events.emit_event(
+                db,
+                source="automation",
+                event_type="awaiting_approval",
+                title=f"Automação '{automation.name}' aguardando sua aprovação",
+                summary=data.get("result_summary"),
+                connection_name=automation.connection_name,
+                ref_kind="automation_run",
+                ref_id=run.id,
+                url_path=f"/automations/{automation.id}",
+            )
     if "log" in data and data["log"] is not None:
         run.log = data["log"]
     if "result_summary" in data and data["result_summary"] is not None:
@@ -287,4 +317,22 @@ def update_automation_run(db: Session, run_id: UUID, data: dict) -> dict | None:
                 except Exception:  # noqa: BLE001
                     logger.exception("slack dispatch completion failed")
 
+    return _serialize_run(run)
+
+
+def approve_automation_run(db: Session, run: AutomationRun) -> dict:
+    """Human approved a paused (awaiting_approval) run on the board.
+
+    Re-enqueue the SAME run as phase 2: the runner will claim it again (phase-2
+    runs bypass the time/enabled gate, see claim_next_automation_run) and carry
+    the automation through its finish phase (e.g. publish + deploy). Mirrors the
+    approve_step → run re-queue pattern of the implementation pipeline.
+    """
+    run.phase = 2
+    run.status = "pending"
+    run.claimed_by = None
+    run.started_at = None
+    run.error = None
+    db.commit()
+    db.refresh(run)
     return _serialize_run(run)

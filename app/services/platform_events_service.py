@@ -254,6 +254,18 @@ def _awaiting_approval_items(db: Session) -> list[dict]:
             )
         )
 
+    for run in db.query(AutomationRun).filter(AutomationRun.status == "awaiting_approval").all():
+        automation = run.automation
+        items.append(
+            _awaiting_item(
+                source="automation",
+                run=run,
+                title=f"Automação pronta: {automation.name}" if automation else "Automação aguardando aprovação",
+                url_path=f"/automations/{run.automation_id}",
+                connection_name=automation.connection_name if automation else None,
+            )
+        )
+
     return items
 
 

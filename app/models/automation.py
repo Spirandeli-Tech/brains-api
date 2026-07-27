@@ -30,6 +30,11 @@ class Automation(Base):
     days_of_week = Column(JSONB, nullable=True)
     time_of_day = Column(Time, nullable=False, default=time(8, 0))
     enabled = Column(Boolean, nullable=False, default=True)
+    # When true, the runner pauses this automation after its prepare phase (phase 1)
+    # instead of completing: the run goes to `awaiting_approval` and shows up on the
+    # "Aguardando você" board. Approving it re-enqueues the same run as phase 2, which
+    # runs to completion. Used by /devocional-preparar-semana (prepare → approve → publish).
+    requires_approval = Column(Boolean, nullable=False, default=False, server_default="false")
     # Ad-hoc automation created to dispatch a one-off skill run (e.g. a planner
     # proposal's `run_skill`). Never self-schedules (enabled=False, frequency
     # "manual") and is hidden from the Automations UI list. Reuses the whole

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, String, DateTime, Date, Text, ForeignKey, Index, text
+from sqlalchemy import Boolean, Column, String, DateTime, Date, Integer, Text, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -33,6 +33,11 @@ class AutomationRun(Base):
     scheduled_for = Column(Date, nullable=False)
     status = Column(String, nullable=False, default="pending")
     is_manual = Column(Boolean, nullable=False, default=False)
+    # For automations with an approval gate: 1 = prepare phase (runs, produces the
+    # preview and pauses at awaiting_approval); 2 = finish phase (re-enqueued when the
+    # user approves, the runner carries the same run through to done). Non-gated runs
+    # stay at phase 1 their whole life.
+    phase = Column(Integer, nullable=False, default=1, server_default="1")
     log = Column(Text, nullable=True)
     result_summary = Column(Text, nullable=True)
     error = Column(Text, nullable=True)

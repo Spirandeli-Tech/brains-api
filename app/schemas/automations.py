@@ -21,6 +21,7 @@ class AutomationRunRead(BaseModel):
     scheduled_for: date
     status: str
     is_manual: bool
+    phase: int
     log: str | None
     result_summary: str | None
     error: str | None
@@ -47,6 +48,7 @@ class AutomationRead(BaseModel):
     days_of_week: list[int] | None
     time_of_day: str
     enabled: bool
+    requires_approval: bool
     created_at: datetime
     updated_at: datetime
     recent_runs: list[AutomationRunRead]
@@ -67,6 +69,7 @@ class AutomationCreate(BaseModel):
     day_of_month: int | None = None
     days_of_week: list[int] | None = None
     time_of_day: str | None = None
+    requires_approval: bool | None = None
 
 
 class AutomationUpdate(BaseModel):
@@ -82,6 +85,7 @@ class AutomationUpdate(BaseModel):
     days_of_week: list[int] | None = None
     time_of_day: str | None = None
     enabled: bool | None = None
+    requires_approval: bool | None = None
 
 
 class ClaimAutomationRequest(BaseModel):
@@ -97,6 +101,8 @@ class AutomationRunClaim(BaseModel):
     repo_name: str | None
     claude_model: str | None
     scheduled_for: date
+    phase: int
+    requires_approval: bool
 
     class Config:
         from_attributes = True

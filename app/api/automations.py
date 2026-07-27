@@ -108,6 +108,25 @@ def run_automation_now(
     return svc.trigger_manual_run(db, automation)
 
 
+@router.post("/runs/{run_id}/approve", response_model=AutomationRunRead)
+def approve_automation_run(
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Approve a paused (awaiting_approval) automation run — re-enqueues it as
+    phase 2 so the runner carries it through its finish phase (e.g. publish)."""
+    run = svc.get_automation_run(db, run_id)
+    if not run or not run.automation or run.automation.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Automation run not found")
+    if run.status != "awaiting_approval":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is not awaiting approval (status={run.status})",
+        )
+    return svc.approve_automation_run(db, run)
+
+
 @router.delete("/{automation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_automation(
     automation_id: UUID,
