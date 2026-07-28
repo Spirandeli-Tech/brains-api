@@ -123,6 +123,7 @@ class VideoScriptRead(BaseModel):
     growth_checklist: list[dict]
     short_cuts: list[str]
     persona: str | None
+    topics_md: str | None
     created_at: datetime
 
     class Config:
@@ -139,6 +140,17 @@ class VideoScriptCreate(BaseModel):
     growth_checklist: list[dict] | None = None
     short_cuts: list[str] | None = None
     persona: str | None = None
+
+
+class TopicsGenerateRead(BaseModel):
+    """A Gemini draft of the recording cue — never persisted on its own; the
+    user edits it in the UI and confirms via `TopicsUpdate`."""
+
+    topics_md: str
+
+
+class TopicsUpdate(BaseModel):
+    topics_md: str
 
 
 # --- Videos ---

@@ -1,0 +1,30 @@
+"""add topics_md to video_scripts
+
+Adds the recording cue ("cola") column — the condensed, screen-worthy
+markdown (title/verse/destaque per scene) Gemini drafts from the script
+`body` and the user hand-edits before saving. Powers the "Cola" tab and the
+fullscreen Presenter in VideoDetail.
+
+Revision ID: b8c9d0e1f2a3
+Revises: a7b8c9d0e1f2
+Create Date: 2026-07-28 00:00:00.000000
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision: str = 'b8c9d0e1f2a3'
+down_revision: Union[str, None] = 'a7b8c9d0e1f2'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.add_column('video_scripts', sa.Column('topics_md', sa.Text(), nullable=True))
+
+
+def downgrade() -> None:
+    op.drop_column('video_scripts', 'topics_md')

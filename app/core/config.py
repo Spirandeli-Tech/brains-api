@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     DEVOCIONAL_CONTENT_DIR: str = "/data/devocional-content"
     DEVOCIONAL_VIDEOS_DIR: str = "/data/devocional-videos"
     DEVOCIONAL_LEDGER_PATH: str = "/data/kdp/devocional-sent.json"
+    # Google Generative Language API key — drafts the "cola" (recording cue)
+    # from a script's body. Empty disables the /topics/generate endpoint.
+    GEMINI_KEY: str = ""
 
     class Config:
         env_file = ".env"

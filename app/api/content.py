@@ -27,6 +27,8 @@ from app.schemas.content import (
     PromoteIdeaRequest,
     RunnerIdeaBulkCreate,
     RunnerScriptCreate,
+    TopicsGenerateRead,
+    TopicsUpdate,
     VideoCreate,
     VideoDetailRead,
     VideoRead,
@@ -246,6 +248,35 @@ def delete_script(
 ):
     svc.delete_script(db, current_user.id, video_id, script_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/videos/{video_id}/scripts/{script_id}/topics/generate",
+    response_model=TopicsGenerateRead,
+)
+def generate_topics(
+    video_id: UUID,
+    script_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Drafts the cola via Gemini. Returns the draft only — nothing is saved
+    until the user reviews it and calls `save_topics`."""
+    return svc.generate_topics_draft(db, current_user.id, video_id, script_id)
+
+
+@router.put(
+    "/videos/{video_id}/scripts/{script_id}/topics",
+    response_model=VideoScriptRead,
+)
+def save_topics(
+    video_id: UUID,
+    script_id: UUID,
+    data: TopicsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return svc.save_topics(db, current_user.id, video_id, script_id, data.topics_md)
 
 
 # --- Runner-facing (labs skills) ---

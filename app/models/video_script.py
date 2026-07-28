@@ -58,6 +58,13 @@ class VideoScript(Base):
     # Which persona file produced it (persona-empreendedor | persona-fe)
     persona = Column(String, nullable=True)
 
+    # The recording cue ("cola") — markdown, one **Título** section per scene
+    # break with condensed bullets (📖 verse quote, ☎️ CVV mention, [destaque]
+    # for the section's single screen-worthy takeaway). Drafted by Gemini from
+    # `body` and always hand-edited before being saved here — never written
+    # straight from the LLM draft.
+    topics_md = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     video = relationship("Video", back_populates="scripts")

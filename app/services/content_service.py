@@ -24,6 +24,7 @@ from app.models.idea import Idea
 from app.models.user import User
 from app.models.video import Video
 from app.models.video_script import VideoScript
+from app.services import gemini_client
 
 # The pipeline, in order. The UI colours the status column with this — the point
 # is answering "where did I get stuck?", which is the real question when a
@@ -447,6 +448,7 @@ def _serialize_script(script: VideoScript) -> dict:
         "growth_checklist": script.growth_checklist or [],
         "short_cuts": script.short_cuts or [],
         "persona": script.persona,
+        "topics_md": script.topics_md,
         "created_at": script.created_at,
     }
 
@@ -727,3 +729,32 @@ def delete_script(db: Session, user_id: UUID, video_id: UUID, script_id: UUID) -
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
     db.delete(script)
     db.commit()
+
+
+def _get_owned_script(db: Session, user_id: UUID, video_id: UUID, script_id: UUID) -> VideoScript:
+    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id).first()
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    script = (
+        db.query(VideoScript)
+        .filter(VideoScript.id == script_id, VideoScript.video_id == video_id)
+        .first()
+    )
+    if not script:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+    return script
+
+
+def generate_topics_draft(db: Session, user_id: UUID, video_id: UUID, script_id: UUID) -> dict:
+    """Drafts the cola via Gemini from the script's body. Never persisted here —
+    the user reviews/edits the draft in the UI before `save_topics` writes it."""
+    script = _get_owned_script(db, user_id, video_id, script_id)
+    return {"topics_md": gemini_client.draft_topics(script.body)}
+
+
+def save_topics(db: Session, user_id: UUID, video_id: UUID, script_id: UUID, topics_md: str) -> dict:
+    script = _get_owned_script(db, user_id, video_id, script_id)
+    script.topics_md = topics_md
+    db.commit()
+    db.refresh(script)
+    return _serialize_script(script)
