@@ -61,6 +61,7 @@ def _serialize_automation(automation: Automation, recent_runs_limit: int = 5) ->
         "time_of_day": automation.time_of_day.strftime("%H:%M:%S") if automation.time_of_day else "08:00:00",
         "enabled": automation.enabled,
         "requires_approval": automation.requires_approval,
+        "tags": automation.tags or [],
         "created_at": automation.created_at,
         "updated_at": automation.updated_at,
         "recent_runs": [_serialize_run(r) for r in runs],
@@ -142,6 +143,7 @@ def create_automation(db: Session, user_id: UUID, data: dict) -> dict:
         time_of_day=time_of_day,
         enabled=True,
         requires_approval=bool(data.get("requires_approval", False)),
+        tags=data.get("tags") or [],
     )
     db.add(automation)
     db.commit()
@@ -158,7 +160,7 @@ def get_automation_run(db: Session, run_id: UUID) -> AutomationRun | None:
 
 
 def update_automation(db: Session, automation: Automation, data: dict) -> dict:
-    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "claude_model", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled", "requires_approval"):
+    for field in ("name", "skill", "instructions", "connection_name", "repo_name", "claude_model", "frequency", "day_of_week", "day_of_month", "days_of_week", "enabled", "requires_approval", "tags"):
         if field in data and data[field] is not None:
             setattr(automation, field, data[field])
     if "enabled" in data and data["enabled"] is not None:

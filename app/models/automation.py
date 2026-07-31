@@ -44,6 +44,9 @@ class Automation(Base):
     # holds {"source":"slack","slack_channel":…,"slack_ts":…} so the completion hook
     # can reply on the right DM/thread without trusting the LLM to echo it back.
     meta = Column(JSONB, nullable=True)
+    # User-assigned free-form labels for organizing the Automations list (multi-select,
+    # e.g. ["finance","content"]). Not derived from anything (skill/slug), purely manual.
+    tags = Column(JSONB, nullable=True, default=list)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

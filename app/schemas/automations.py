@@ -49,6 +49,7 @@ class AutomationRead(BaseModel):
     time_of_day: str
     enabled: bool
     requires_approval: bool
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
     recent_runs: list[AutomationRunRead]
@@ -70,6 +71,7 @@ class AutomationCreate(BaseModel):
     days_of_week: list[int] | None = None
     time_of_day: str | None = None
     requires_approval: bool | None = None
+    tags: list[str] | None = None
 
 
 class AutomationUpdate(BaseModel):
@@ -86,6 +88,7 @@ class AutomationUpdate(BaseModel):
     time_of_day: str | None = None
     enabled: bool | None = None
     requires_approval: bool | None = None
+    tags: list[str] | None = None
 
 
 class ClaimAutomationRequest(BaseModel):
