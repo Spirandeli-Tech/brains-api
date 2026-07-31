@@ -362,3 +362,26 @@ def runner_promote_idea(
 ):
     user_id = svc.resolve_user_id(db, user_email)
     return svc.promote_idea(db, user_id, idea_id, data.model_dump(exclude_unset=True))
+
+
+@router.patch("/runner/videos/{video_id}", response_model=VideoRead)
+def runner_update_video(
+    video_id: UUID,
+    user_email: str,
+    data: VideoUpdate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_runner),
+):
+    """Atualiza um vídeo de fora da UI — o que faltava pra uma automação registrar progresso.
+
+    O runner já podia listar vídeos, criar script e promover ideia, mas não podia dizer "este
+    vídeo saiu de `script_ready` para `edited`". Sem isso o painel mostra o estado do dia em
+    que a ideia foi promovida, mesmo com o episódio montado, e quem edita tem de abrir a UI
+    pra corrigir à mão.
+
+    Usa o mesmo `VideoUpdate` e o mesmo `svc.update_video` da rota autenticada por Firebase,
+    então não há caminho novo de escrita — só outra porta de entrada, protegida pelo
+    `X-Runner-Token`.
+    """
+    user_id = svc.resolve_user_id(db, user_email)
+    return svc.update_video(db, user_id, video_id, data.model_dump(exclude_unset=True))
