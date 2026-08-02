@@ -50,9 +50,22 @@ def _conn_name(run) -> str | None:
 
 
 def _automation_path(run: AutomationRun, auto: Automation) -> str:
-    """The automation detail screen, anchored at this run — that's where the log
-    for an automation lives. Other kinds have no per-run log screen yet."""
+    """The automation detail screen, anchored at this run."""
     return f"/automations/{auto.id}?run={run.id}"
+
+
+# Where each kind's runs are shown. The list screens take the same `?run=`
+# deep link as the automation detail: they highlight that card and scroll to it.
+_KIND_LIST_PATH = {
+    "implementation": "/implementations",
+    "code_review": "/code-review",
+    "address_pr": "/address-pr-comments",
+}
+
+
+def _run_path(kind: str, run_id) -> str | None:
+    base = _KIND_LIST_PATH.get(kind)
+    return f"{base}?run={run_id}" if base else None
 
 
 def _automation_item(run: AutomationRun, auto: Automation, now: datetime) -> dict:
@@ -93,6 +106,7 @@ def _impl_item(run: ImplementationRun) -> dict:
         "created_at": run.created_at,
         "started_at": run.claimed_at,
         "error": run.error,
+        "url_path": _run_path("implementation", run.id),
         "can_cancel": run.status != "running",
     }
 
@@ -112,6 +126,7 @@ def _pr_item(run, kind: str) -> dict:
         "created_at": run.created_at,
         "started_at": run.claimed_at,
         "error": run.error,
+        "url_path": _run_path(kind, run.id),
         "can_cancel": run.status != "running",
     }
 
@@ -123,6 +138,8 @@ def _planner_item(run: PlannerRun) -> dict:
         "title": f"Planner {run.plan_date}",
         "subtitle": None,
         "connection_name": None,
+        # The planner has no per-run card — its output *is* the Insights screen.
+        "url_path": "/insights",
         "display_status": "running" if run.status == "running" else "queued",
         "created_at": run.created_at,
         "started_at": run.claimed_at,
@@ -168,6 +185,7 @@ def _recent_impl(run: ImplementationRun) -> dict:
         "finished_at": run.updated_at,
         "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
         "error": run.error,
+        "url_path": _run_path("implementation", run.id),
     }
 
 
@@ -182,6 +200,7 @@ def _recent_pr(run, kind: str) -> dict:
         "finished_at": run.updated_at,
         "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
         "error": run.error,
+        "url_path": _run_path(kind, run.id),
     }
 
 
@@ -192,6 +211,8 @@ def _recent_planner(run: PlannerRun) -> dict:
         "title": f"Planner {run.plan_date}",
         "subtitle": None,
         "connection_name": None,
+        # The planner has no per-run card — its output *is* the Insights screen.
+        "url_path": "/insights",
         "status": run.status,
         "finished_at": run.updated_at,
         "duration_seconds": _duration_seconds(run.claimed_at, run.updated_at),
