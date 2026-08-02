@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,10 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User
 from app.schemas.runner import HeartbeatIn, RunnerOverview
+from app.services import address_pr_service
+from app.services import automation_service
+from app.services import code_review_service
+from app.services import implementation_service
 from app.services import runner_service as svc
 
 router = APIRouter(prefix="/runner", tags=["runner"])
@@ -41,3 +47,47 @@ def overview(
     current_user: User = Depends(get_current_user),
 ):
     return svc.build_overview(db)
+
+
+_ALREADY_RUNNING = HTTPException(
+    status_code=status.HTTP_409_CONFLICT,
+    detail="O runner já pegou esse job — não dá pra cancelar em execução.",
+)
+
+
+@router.post("/queue/{kind}/{run_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_queued_run(
+    kind: str,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Drop a queued job off the runner's queue, whichever table it lives in.
+
+    Only jobs the runner hasn't claimed yet: aborting work already in flight
+    would need the runner's cooperation, which it doesn't have today.
+    """
+    if kind == "automation":
+        run = automation_service.get_automation_run(db, run_id)
+        if not run or not run.automation or run.automation.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if not automation_service.cancel_automation_run(db, run):
+            raise _ALREADY_RUNNING
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    services = {
+        "implementation": implementation_service,
+        "code_review": code_review_service,
+        "address_pr": address_pr_service,
+    }
+    service = services.get(kind)
+    if service is None:
+        raise HTTPException(status_code=400, detail=f"Kind '{kind}' cannot be cancelled")
+
+    run = service.get_run(db, run_id)
+    if not run or run.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status == "running":
+        raise _ALREADY_RUNNING
+    service.cancel_run(db, run)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

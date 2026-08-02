@@ -5,7 +5,7 @@ from datetime import date, datetime, time
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -338,3 +338,21 @@ def approve_automation_run(db: Session, run: AutomationRun) -> dict:
     db.commit()
     db.refresh(run)
     return _serialize_run(run)
+
+
+def cancel_automation_run(db: Session, run: AutomationRun) -> bool:
+    """Drop a still-unclaimed run from the queue. Returns False if the runner
+    already took it (or it had finished) — the cancel simply lost the race.
+
+    A conditional UPDATE, not a read-then-write: the runner's claim query runs
+    every few seconds, and whoever flips `pending` first wins. The row stays
+    behind as `cancelled`, which also keeps the scheduler from re-materializing
+    the same (automation, scheduled_for) slot later in the day.
+    """
+    result = db.execute(
+        update(AutomationRun)
+        .where(AutomationRun.id == run.id, AutomationRun.status == "pending")
+        .values(status="cancelled", finished_at=datetime.utcnow())
+    )
+    db.commit()
+    return result.rowcount > 0

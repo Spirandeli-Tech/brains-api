@@ -49,6 +49,12 @@ def _conn_name(run) -> str | None:
     return getattr(conn, "display_name", None) if conn else None
 
 
+def _automation_path(run: AutomationRun, auto: Automation) -> str:
+    """The automation detail screen, anchored at this run — that's where the log
+    for an automation lives. Other kinds have no per-run log screen yet."""
+    return f"/automations/{auto.id}?run={run.id}"
+
+
 def _automation_item(run: AutomationRun, auto: Automation, now: datetime) -> dict:
     due_at = None
     display = "running"
@@ -70,6 +76,8 @@ def _automation_item(run: AutomationRun, auto: Automation, now: datetime) -> dic
         "started_at": run.started_at,
         "due_at": due_at,
         "error": run.error,
+        "url_path": _automation_path(run, auto),
+        "can_cancel": display != "running",
     }
 
 
@@ -85,6 +93,7 @@ def _impl_item(run: ImplementationRun) -> dict:
         "created_at": run.created_at,
         "started_at": run.claimed_at,
         "error": run.error,
+        "can_cancel": run.status != "running",
     }
 
 
@@ -103,6 +112,7 @@ def _pr_item(run, kind: str) -> dict:
         "created_at": run.created_at,
         "started_at": run.claimed_at,
         "error": run.error,
+        "can_cancel": run.status != "running",
     }
 
 
@@ -143,6 +153,7 @@ def _recent_automation(run: AutomationRun, auto: Automation) -> dict:
         "finished_at": run.finished_at,
         "duration_seconds": _duration_seconds(run.started_at, run.finished_at),
         "error": run.error,
+        "url_path": _automation_path(run, auto),
     }
 
 

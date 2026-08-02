@@ -33,6 +33,10 @@ class QueueItem(BaseModel):
     started_at: datetime | None = None
     due_at: datetime | None = None
     error: str | None = None
+    # Front-end route where this run's log/detail lives (null when the kind has
+    # no detail screen yet), and whether it can still be dropped from the queue.
+    url_path: str | None = None
+    can_cancel: bool = False
 
 
 class RecentRun(BaseModel):
@@ -45,6 +49,7 @@ class RecentRun(BaseModel):
     finished_at: datetime | None = None
     duration_seconds: float | None = None
     error: str | None = None
+    url_path: str | None = None
 
 
 class RunnerOverview(BaseModel):
