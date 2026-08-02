@@ -30,6 +30,20 @@ import yaml
 from app.core.config import settings
 
 _FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)\.md$")
+_BLOG_BASE_URL = "https://devocional.spirandeli.com"
+
+
+def _imagem_url(frontmatter: dict) -> str | None:
+    """The frontmatter `imagem` is a path relative to the blog root
+    (`/conteudos/img/<slug>.jpeg`); the UI needs an absolute URL. Images live
+    in the site's `public/`, so they're online even while the reflection is
+    still only scheduled."""
+    imagem = frontmatter.get("imagem")
+    if not imagem:
+        return None
+    if imagem.startswith("http://") or imagem.startswith("https://"):
+        return imagem
+    return f"{_BLOG_BASE_URL}/{imagem.lstrip('/')}"
 
 
 def _parse_markdown(text: str) -> tuple[dict, str] | None:
@@ -116,8 +130,9 @@ def list_devocionais() -> list[dict]:
                 "data": item_date,
                 "versiculo": frontmatter.get("versiculo"),
                 "resumo": frontmatter.get("resumo"),
-                "blog_url": f"https://devocional.spirandeli.com/conteudos/{slug}",
+                "blog_url": f"{_BLOG_BASE_URL}/conteudos/{slug}",
                 "blog_status": blog_status,
+                "imagem_url": _imagem_url(frontmatter),
                 "telegram_sent_at": ledger.get(slug),
                 "video_status": (video or {}).get("status", "none"),
                 "video_youtube_url": long_info.get("youtube_url"),
@@ -176,15 +191,15 @@ def get_devocional(slug: str) -> dict | None:
         "data": item_date,
         "versiculo": frontmatter.get("versiculo"),
         "resumo": frontmatter.get("resumo"),
-        "blog_url": f"https://devocional.spirandeli.com/conteudos/{slug}",
+        "blog_url": f"{_BLOG_BASE_URL}/conteudos/{slug}",
         "blog_status": blog_status,
+        "imagem_url": _imagem_url(frontmatter),
         "telegram_sent_at": _load_ledger().get(slug),
         "video_status": (video or {}).get("status", "none"),
         "video_youtube_url": long_info.get("youtube_url"),
         "video_short_youtube_url": short_info.get("youtube_url"),
         "tema": frontmatter.get("tema"),
         "tags": frontmatter.get("tags") or [],
-        "imagem": frontmatter.get("imagem"),
         "roteiro": body,
         "telegram_mensagem": frontmatter.get("telegram"),
         "video_title": video.get("title") if video else None,

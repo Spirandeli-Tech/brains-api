@@ -18,6 +18,8 @@ class DevocionalRead(BaseModel):
     blog_url: str
     # draft (publicado: false) | scheduled (publicado: true, data no futuro) | published
     blog_status: str
+    # absolute URL of the reflection's cover image, when the frontmatter has one
+    imagem_url: str | None
     telegram_sent_at: datetime | None
     # none | assembled | published
     video_status: str
@@ -32,7 +34,6 @@ class DevocionalDetail(DevocionalRead):
 
     tema: str | None
     tags: list[str] = []
-    imagem: str | None
     roteiro: str
     telegram_mensagem: str | None
     video_title: str | None
