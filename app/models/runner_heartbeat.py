@@ -12,6 +12,10 @@ class RunnerHeartbeat(Base):
     endpoint compares last_seen_at against now and marks the runner offline
     once the gap exceeds a small multiple of its poll interval. One row per
     runner_id (upserted), so it never grows unbounded.
+
+    The row doubles as the control channel back to the runner: the heartbeat
+    response is the only thing the runner reads while its main loop is blocked
+    inside a job, so a restart request rides along on it.
     """
 
     __tablename__ = "runner_heartbeats"
@@ -21,4 +25,7 @@ class RunnerHeartbeat(Base):
     poll_interval = Column(String, nullable=True)
     dry_run = Column(Boolean, nullable=True)
     version = Column(String, nullable=True)
+    # Set by the UI's "Reiniciar" button, cleared by the next heartbeat that
+    # picks it up (consume-once, so one click = one restart).
+    restart_requested_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

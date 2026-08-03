@@ -7,7 +7,7 @@ from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User
-from app.schemas.runner import HeartbeatIn, RunnerOverview
+from app.schemas.runner import HeartbeatIn, HeartbeatOut, RestartOut, RunnerOverview
 from app.services import address_pr_service
 from app.services import automation_service
 from app.services import code_review_service
@@ -31,14 +31,13 @@ def require_runner(x_runner_token: str | None = Header(default=None)) -> bool:
     return True
 
 
-@router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/heartbeat", response_model=HeartbeatOut)
 def heartbeat(
     payload: HeartbeatIn,
     db: Session = Depends(get_db),
     _: bool = Depends(require_runner),
 ):
-    svc.record_heartbeat(db, payload.model_dump())
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return svc.record_heartbeat(db, payload.model_dump())
 
 
 @router.get("/overview", response_model=RunnerOverview)
@@ -47,6 +46,25 @@ def overview(
     current_user: User = Depends(get_current_user),
 ):
     return svc.build_overview(db)
+
+
+@router.post("/{runner_id}/restart", response_model=RestartOut)
+def restart_runner(
+    runner_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ask a runner to bounce itself.
+
+    We can't reach the runner process directly — it lives on Lucas's laptop, not
+    in this container — so the request is parked on its heartbeat row and picked
+    up on the next ping (within a few seconds). The runner then kills whatever it
+    was running and exits; its start.sh wrapper brings it straight back up.
+    """
+    result = svc.request_restart(db, runner_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Runner not found")
+    return result
 
 
 _ALREADY_RUNNING = HTTPException(

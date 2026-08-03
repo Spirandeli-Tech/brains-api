@@ -10,6 +10,13 @@ class HeartbeatIn(BaseModel):
     version: str | None = None
 
 
+class HeartbeatOut(BaseModel):
+    """Commands riding back on the heartbeat — the only channel that reaches the
+    runner while its main loop is blocked inside a job."""
+
+    restart_requested: bool = False
+
+
 class RunnerStatus(BaseModel):
     runner_id: str
     last_seen_at: datetime
@@ -18,6 +25,15 @@ class RunnerStatus(BaseModel):
     poll_interval: str | None = None
     dry_run: bool | None = None
     version: str | None = None
+    # A restart was asked for and the runner hasn't picked it up yet.
+    restart_pending: bool = False
+
+
+class RestartOut(BaseModel):
+    runner_id: str
+    requested_at: datetime
+    # In-flight runs failed by the request (the restart kills them).
+    failed_runs: int
 
 
 class QueueItem(BaseModel):

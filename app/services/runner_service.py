@@ -20,7 +20,17 @@ from app.models.planner_run import PlannerRun
 from app.models.runner_heartbeat import RunnerHeartbeat
 
 
-def record_heartbeat(db: Session, data: dict) -> None:
+RESTART_ERROR = "Interrompido por um restart manual do runner."
+
+
+def record_heartbeat(db: Session, data: dict) -> dict:
+    """Record liveness and hand back any pending command for this runner.
+
+    The heartbeat runs on its own thread inside the runner, so its response is
+    the one channel that still reaches the runner while the main loop sits
+    blocked inside a multi-minute job — which is exactly when a restart is
+    needed. The restart flag is consumed here (one click = one restart).
+    """
     runner_id = data["runner_id"]
     now = datetime.utcnow()
     hb = db.query(RunnerHeartbeat).filter(RunnerHeartbeat.runner_id == runner_id).first()
@@ -31,7 +41,57 @@ def record_heartbeat(db: Session, data: dict) -> None:
     hb.poll_interval = data.get("poll_interval")
     hb.dry_run = data.get("dry_run")
     hb.version = data.get("version")
+    restart_requested = hb.restart_requested_at is not None
+    if restart_requested:
+        hb.restart_requested_at = None
     db.commit()
+    return {"restart_requested": restart_requested}
+
+
+def _fail_inflight_runs(db: Session, runner_id: str, now: datetime) -> int:
+    """Mark everything this runner currently holds as failed.
+
+    A restart kills the child process mid-flight, so these rows would otherwise
+    sit `running` until the watchdog eventually noticed. Failing them here keeps
+    the dashboard honest and frees the queue the moment the runner comes back.
+    """
+    failed = 0
+
+    for run in (
+        db.query(AutomationRun)
+        .filter(AutomationRun.status == "running", AutomationRun.claimed_by == runner_id)
+        .all()
+    ):
+        run.status = "failed"
+        run.error = RESTART_ERROR
+        run.finished_at = now
+        failed += 1
+
+    for model in (ImplementationRun, CodeReviewRun, AddressPrRun, PlannerRun):
+        for run in (
+            db.query(model)
+            .filter(model.status == "running", model.claimed_by == runner_id)
+            .all()
+        ):
+            run.status = "failed"
+            run.claimed_by = None
+            run.claimed_at = None
+            run.error = RESTART_ERROR
+            failed += 1
+
+    return failed
+
+
+def request_restart(db: Session, runner_id: str) -> dict | None:
+    """Ask a runner to restart itself. Returns None when it never checked in."""
+    hb = db.query(RunnerHeartbeat).filter(RunnerHeartbeat.runner_id == runner_id).first()
+    if hb is None:
+        return None
+    now = datetime.utcnow()
+    hb.restart_requested_at = now
+    failed = _fail_inflight_runs(db, runner_id, now)
+    db.commit()
+    return {"runner_id": runner_id, "requested_at": now, "failed_runs": failed}
 
 
 def _online_threshold_seconds(poll_interval: str | None) -> float:
@@ -294,6 +354,9 @@ def build_overview(db: Session) -> dict:
             "poll_interval": hb.poll_interval,
             "dry_run": hb.dry_run,
             "version": hb.version,
+            # Still set means no heartbeat has picked it up yet — normal for a
+            # couple of seconds, a sign the runner is really dead if it sticks.
+            "restart_pending": hb.restart_requested_at is not None,
         })
     runners.sort(key=lambda r: r["runner_id"])
 
