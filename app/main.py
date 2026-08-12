@@ -25,10 +25,19 @@ from app.api.content import router as content_router
 from app.api.devocionais import router as devocionais_router
 from app.core.config import settings
 from app.core.firebase import init_firebase
+from app.core.db import engine
+from app.core.org_blocklist import OrgBlocklistMiddleware, install_db_guard
 
 app = FastAPI(title="AI Service API", version="1.0.0")
 
 init_firebase()
+
+# Permanent block on one organisation — see app/core/org_blocklist.py. The
+# middleware is added first so it wraps everything below it, and the database
+# triggers are (re)installed on every boot so a rebuilt database is never
+# left unguarded.
+app.add_middleware(OrgBlocklistMiddleware)
+install_db_guard(engine)
 
 app.add_middleware(
     CORSMiddleware,
