@@ -110,6 +110,16 @@ def runner_seed_agents(
     return {"seeded": count}
 
 
+@router.post("/runner/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def runner_create_task(
+    data: TaskCreate,
+    db: Session = Depends(get_db),
+    _: bool = Depends(require_runner),
+):
+    """Rituais: o runner enfileira tasks agendadas (fabrica/rituais.yaml)."""
+    return svc.create_task(db, data.model_dump())
+
+
 @router.post("/runner/claim", response_model=TaskRead | None)
 def runner_claim(
     data: ClaimRequest,
