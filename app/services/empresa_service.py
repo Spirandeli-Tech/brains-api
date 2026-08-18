@@ -352,7 +352,28 @@ def list_tasks(db: Session, status: str | None = None, limit: int = 100) -> list
 
 
 def claim_next_task(db: Session, runner_id: str) -> AgentTask | None:
-    """Claim da task mais antiga cujo agente não está ocupado (1 running por agente)."""
+    """Claim da task mais antiga cujo agente não está ocupado (1 running por agente).
+
+    Auto-recuperação de órfãs: task 'running' há mais de 45 min (runner morreu no
+    meio — restart, crash) volta pra fila antes do claim; sem isso, a task-zumbi
+    segura o cadeado de identidade do agente pra sempre.
+    """
+    from datetime import timedelta
+
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=45)
+    stale = (
+        db.query(AgentTask)
+        .filter(AgentTask.status == "running", AgentTask.claimed_at < stale_cutoff)
+        .all()
+    )
+    for t in stale:
+        t.status = "queued"
+        t.claimed_by = None
+        t.claimed_at = None
+        t.updated_at = datetime.utcnow()
+    if stale:
+        db.commit()
+
     busy = select(AgentTask.agent_slug).where(AgentTask.status == "running")
     stmt = (
         select(AgentTask)
