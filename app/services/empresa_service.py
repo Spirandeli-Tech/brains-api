@@ -29,6 +29,64 @@ DEFAULT_SKILL = "atender-mensagem"
 INVESTOR_DIRECTIVE_SKILL = "ceo-diretriz"
 
 
+def diagnostico(db: Session) -> dict:
+    """'Por que está tudo parado?' — a corrente inteira explicada em linguagem humana.
+
+    Cada check é {nome, ok, detalhe}. `motivos` sintetiza por que nada está se
+    movendo AGORA (fila vazia ≠ problema: anti-busywork é regra da casa).
+    """
+    from datetime import timedelta
+
+    from app.models import ImplementationRun, RunnerHeartbeat
+
+    now = datetime.utcnow()
+    checks: list[dict] = []
+    motivos: list[str] = []
+
+    hb = db.query(RunnerHeartbeat).order_by(RunnerHeartbeat.last_seen_at.desc()).first()
+    if hb and now - hb.last_seen_at < timedelta(minutes=2):
+        age = int((now - hb.last_seen_at).total_seconds())
+        checks.append({"nome": "Runner", "ok": True,
+                       "detalhe": f"vivo ({hb.runner_id}, visto há {age}s)" + (" · DRY-RUN ligado" if hb.dry_run else "")})
+        if hb.dry_run:
+            motivos.append("O runner está em dry-run: execuções são narradas, sem efeito real (rede de segurança da estreia).")
+    else:
+        checks.append({"nome": "Runner", "ok": False,
+                       "detalhe": "sem heartbeat há mais de 2 min — o processo do runner provavelmente não está rodando na máquina"})
+        motivos.append("O runner está fora do ar — nada é executado sem ele. Iniciar: cd runner && .venv/bin/python runner.py (com CLAUDE_CODE_OAUTH_TOKEN no ambiente).")
+
+    queued = db.query(AgentTask).filter(AgentTask.status == "queued").count()
+    running = db.query(AgentTask).filter(AgentTask.status == "running").count()
+    checks.append({"nome": "Fila da empresa", "ok": True,
+                   "detalhe": f"{running} em execução · {queued} aguardando"})
+    if queued == 0 and running == 0:
+        motivos.append("Nenhuma task na fila dos agentes — ninguém foi acionado (mensagem, ritual ou evento). Fila vazia é estado legítimo (anti-busywork).")
+
+    rituais = list_rituais()
+    if rituais:
+        nunca = [r["name"] for r in rituais if not r["last_fired"]]
+        det = f"{len(rituais)} agendados"
+        if nunca:
+            det += f" · ainda não dispararam: {', '.join(nunca)}"
+        checks.append({"nome": "Rituais", "ok": True, "detalhe": det})
+        if len(nunca) == len(rituais):
+            motivos.append("Nenhum ritual disparou ainda — o primeiro é o ceo-ritual-semanal, segunda-feira às 08:00.")
+    else:
+        checks.append({"nome": "Rituais", "ok": False, "detalhe": "rituais.yaml não montado/ilegível"})
+
+    impl_q = db.query(ImplementationRun).filter(ImplementationRun.status == "queued").count()
+    impl_r = db.query(ImplementationRun).filter(ImplementationRun.status == "running").count()
+    impl_a = db.query(ImplementationRun).filter(ImplementationRun.status == "awaiting_approval").count()
+    checks.append({"nome": "Pipeline de implementação", "ok": True,
+                   "detalhe": f"{impl_r} rodando · {impl_q} na fila · {impl_a} aguardando aprovação"})
+    if impl_a:
+        motivos.append(f"{impl_a} run(s) de implementação PAUSADA(s) esperando aprovação do investidor — board 'Aguardando você'.")
+    if impl_q == 0 and impl_r == 0 and impl_a == 0:
+        motivos.append("Nenhuma run de implementação ativa — tickets Ready só viram trabalho quando uma run é lançada (a ponte automática é o ST-159).")
+
+    return {"checks": checks, "motivos": motivos}
+
+
 import re as _re
 
 

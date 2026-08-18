@@ -98,6 +98,15 @@ def create_task(
     return svc.create_task(db, data.model_dump())
 
 
+@router.get("/diagnostico")
+def get_diagnostico(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """O botão 'por que está tudo parado?' — estado da corrente em linguagem humana."""
+    return svc.diagnostico(db)
+
+
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
 def get_task_detail(
     task_id: UUID,
