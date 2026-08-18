@@ -38,6 +38,8 @@ class AgentTask(Base):
     finished_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
     result_summary = Column(Text, nullable=True)
+    # transcript da execução, atualizado ao vivo pelo runner (streaming na UI)
+    log = Column(Text, nullable=True)
     cost_usd = Column(Numeric(10, 4), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

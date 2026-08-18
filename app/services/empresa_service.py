@@ -29,6 +29,22 @@ DEFAULT_SKILL = "atender-mensagem"
 INVESTOR_DIRECTIVE_SKILL = "ceo-diretriz"
 
 
+import re as _re
+
+
+def get_skill_doc(skill: str) -> str | None:
+    """Conteúdo do SKILL.md de uma skill da fábrica (pro diálogo 'o que este ritual faz')."""
+    if not _re.fullmatch(r"[a-z0-9-]+", skill):
+        return None
+    path = os.path.join(FABRICA_DIR, ".claude", "skills", skill, "SKILL.md")
+    if not os.path.exists(path):
+        return None
+    try:
+        return open(path).read()
+    except OSError:
+        return None
+
+
 # --- Rituais (agenda da empresa, lida de fabrica/rituais.yaml montado ro) ---
 
 FABRICA_DIR = os.environ.get("FABRICA_DIR", "/data/fabrica")
@@ -145,14 +161,41 @@ def list_agents(db: Session) -> list[dict]:
 # --- Messages + dispatcher ---
 
 
+# persona de cada agente no Slack (nome de exibição + emoji), até o Bezalel
+# desenhar os retratos oficiais (viram custom emojis do workspace)
+SLACK_PERSONAS = {
+    "salomao": ("Salomão · CEO", ":crown:"),
+    "neemias": ("Neemias · CTO", ":building_construction:"),
+    "mateus": ("Mateus · CFO", ":moneybag:"),
+    "paulo": ("Paulo · CMO", ":mega:"),
+    "noe": ("Noé · Dev", ":hammer_and_wrench:"),
+    "nata": ("Natã · Code Review", ":balance_scale:"),
+    "tome": ("Tomé · QA", ":test_tube:"),
+    "bezalel": ("Bezalel · Designer", ":art:"),
+    "calebe": ("Calebe · Pesquisa", ":telescope:"),
+    "investidor": ("Lucas · Investidor", ":large_yellow_circle:"),
+}
+
+
 def _mirror_to_slack(db: Session, message: AgentMessage) -> None:
-    """Espelha a mensagem no canal da empresa via platform event (nunca levanta)."""
-    to_part = f" → @{message.to_agent}" if message.to_agent else ""
+    """Espelha a mensagem no canal da empresa como persona do agente (nunca levanta)."""
+    from app.services import notifier
+
+    name, emoji = SLACK_PERSONAS.get(message.from_agent, (f"@{message.from_agent}", ":robot_face:"))
+    text = message.body
+    if message.to_agent:
+        to_name = SLACK_PERSONAS.get(message.to_agent, (f"@{message.to_agent}",))[0].split(" · ")[0]
+        text = f"*@{to_name}* — {text}"
+    if message.artifact_url:
+        text += f"\n<{message.artifact_url}|artefato>"
+    notifier.post_agent_message(name, emoji, text)
+    # registro do evento na plataforma (UI/histórico); o notifier ignora este
+    # event_type — o post persona acima é o espelho
     events.emit_event(
         db,
         source="empresa",
         event_type="agent_message",
-        title=f"@{message.from_agent}{to_part}",
+        title=f"@{message.from_agent}" + (f" → @{message.to_agent}" if message.to_agent else ""),
         summary=message.body[:400],
         ref_kind="agent_message",
         ref_id=message.id,

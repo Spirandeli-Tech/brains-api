@@ -101,6 +101,28 @@ def _deep_link(url_path: str | None) -> str | None:
     return f"{base}{url_path}" if base else None
 
 
+def post_agent_message(username: str, icon_emoji: str, text: str) -> None:
+    """Mensagem do feed da empresa de agentes como PERSONA (nome+ícone próprios).
+
+    Requer o scope chat:write.customize no app; sem ele o Slack devolve
+    missing_scope e caímos no formato plano (prefixado) — o espelho nunca some.
+    Canal: SLACK_CHANNEL_EMPRESA, fallback DM do operador.
+    """
+    if not is_configured():
+        return
+    channel = settings.SLACK_CHANNEL_EMPRESA or _dm()
+    if not channel:
+        return
+    data = _post("chat.postMessage", {
+        "channel": channel,
+        "text": text,
+        "username": username,
+        "icon_emoji": icon_emoji,
+    })
+    if data and not data.get("ok") and data.get("error") == "missing_scope":
+        _post("chat.postMessage", {"channel": channel, "text": f"*{username}*\n{text}"})
+
+
 def _send(text: str, channel: str | None, blocks: list[dict] | None = None) -> None:
     """Post a mrkdwn message to a resolved Slack channel id. No-op if the channel
     couldn't be resolved (unconfigured / DM open failed). When `blocks` is given,
@@ -150,8 +172,9 @@ def _target_channel(event_type: str, source: str) -> str | None:
     elif event_type == "run_finished" and source == "code_review":
         configured = settings.SLACK_CHANNEL_CODE_REVIEW
     elif event_type == "agent_message":
-        # o feed da empresa de agentes espelhado no Slack (fabrica/PROTOCOLO.md)
-        configured = settings.SLACK_CHANNEL_EMPRESA
+        # espelhado como persona por notifier.post_agent_message (empresa_service);
+        # aqui fica silencioso para não duplicar o ping
+        return None
     else:
         return None  # UI-only — not worth a ping
     return configured or _dm()

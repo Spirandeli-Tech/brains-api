@@ -99,6 +99,12 @@ class TaskRead(BaseModel):
         from_attributes = True
 
 
+class TaskDetail(TaskRead):
+    """Detalhe completo de uma task — inclui o transcript ao vivo (log)."""
+
+    log: str | None = None
+
+
 class TaskCreate(BaseModel):
     agent_slug: str
     skill: str

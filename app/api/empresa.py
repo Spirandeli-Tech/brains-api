@@ -25,6 +25,7 @@ from app.schemas.empresa import (
     MessageRead,
     RunnerMessageCreate,
     TaskCreate,
+    TaskDetail,
     TaskRead,
     TaskReport,
 )
@@ -95,6 +96,32 @@ def create_task(
     current_user: User = Depends(get_current_user),
 ):
     return svc.create_task(db, data.model_dump())
+
+
+@router.get("/tasks/{task_id}", response_model=TaskDetail)
+def get_task_detail(
+    task_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Detalhe da task com o transcript ao vivo — a UI faz poll enquanto running."""
+    task = svc.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+@router.get("/skills/{skill_name}")
+def get_skill_doc(
+    skill_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """O SKILL.md da skill (pro diálogo 'o que este ritual faz')."""
+    content = svc.get_skill_doc(skill_name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"skill": skill_name, "content": content}
 
 
 @router.get("/rituais")
