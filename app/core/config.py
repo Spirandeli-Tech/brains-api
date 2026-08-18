@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     # Shared secret the host-side implementation runner presents (X-Runner-Token)
     # to claim runs and patch status. Empty disables the runner endpoints.
     RUNNER_TOKEN: str = ""
+    # conexões da fábrica de agentes: steps de implementação nunca pausam para
+    # aprovação (gates humanos são só dinheiro/publicação/legal). Display names
+    # separados por vírgula.
+    AUTONOMOUS_CONNECTIONS: str = ""
     # Read-only mount of the host's ~/.claude, used to discover available skills for automations.
     CLAUDE_HOME_DIR: str = "/root/.claude"
     # Slack notifier (proactive platform fase 3). Both empty disables it — the

@@ -133,6 +133,24 @@ def get_skill_doc(
     return {"skill": skill_name, "content": content}
 
 
+@router.post("/rituais/{ritual_name}/executar", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def executar_ritual_agora(
+    ritual_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Botão 'Executar agora': dispara o ritual imediatamente, sem esperar o cron."""
+    ritual = next((r for r in svc.list_rituais() if r["name"] == ritual_name), None)
+    if ritual is None:
+        raise HTTPException(status_code=404, detail="Ritual não encontrado")
+    return svc.create_task(db, {
+        "agent_slug": ritual["agent_slug"],
+        "skill": ritual["skill"],
+        "trigger": "manual",
+        "payload": {"ritual": ritual_name, "nota": "disparo manual pelo investidor (Executar agora)"},
+    })
+
+
 @router.get("/rituais")
 def list_rituais(
     db: Session = Depends(get_db),
