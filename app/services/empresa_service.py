@@ -223,6 +223,7 @@ def list_agents(db: Session) -> list[dict]:
 # desenhar os retratos oficiais (viram custom emojis do workspace)
 SLACK_PERSONAS = {
     "salomao": ("Salomão · CEO", ":crown:"),
+    "esdras": ("Esdras · Product Manager", ":scroll:"),
     "neemias": ("Neemias · CTO", ":building_construction:"),
     "mateus": ("Mateus · CFO", ":moneybag:"),
     "paulo": ("Paulo · CMO", ":mega:"),
