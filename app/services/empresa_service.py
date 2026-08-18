@@ -29,6 +29,40 @@ DEFAULT_SKILL = "atender-mensagem"
 INVESTOR_DIRECTIVE_SKILL = "ceo-diretriz"
 
 
+# --- Interruptor da empresa (o botão do investidor) ---
+
+PAUSE_KEY = "empresa_pausada"
+
+
+def empresa_pausada(db: Session) -> bool:
+    from app.models.base import SystemMeta
+
+    row = db.query(SystemMeta).filter(SystemMeta.key == PAUSE_KEY).first()
+    return bool(row and row.value == "true")
+
+
+def set_empresa_pausada(db: Session, pausada: bool) -> bool:
+    from app.models.base import SystemMeta
+
+    row = db.query(SystemMeta).filter(SystemMeta.key == PAUSE_KEY).first()
+    if row is None:
+        row = SystemMeta(key=PAUSE_KEY, value="false")
+        db.add(row)
+    row.value = "true" if pausada else "false"
+    db.commit()
+    # broadcast no feed/Slack — a empresa inteira (e o investidor no celular) fica sabendo
+    create_message(
+        db,
+        from_agent="investidor",
+        to_agent=None,
+        body=("🔴 A empresa foi DESLIGADA pelo investidor. Nada novo inicia; execuções em "
+              "andamento concluem e param." if pausada
+              else "🟢 A empresa foi RELIGADA pelo investidor. Operação normal retomada."),
+        enqueue=False,
+    )
+    return pausada
+
+
 def diagnostico(db: Session) -> dict:
     """'Por que está tudo parado?' — a corrente inteira explicada em linguagem humana.
 
@@ -42,6 +76,11 @@ def diagnostico(db: Session) -> dict:
     now = datetime.utcnow()
     checks: list[dict] = []
     motivos: list[str] = []
+
+    if empresa_pausada(db):
+        checks.append({"nome": "Interruptor", "ok": False,
+                       "detalhe": "EMPRESA DESLIGADA pelo investidor"})
+        motivos.insert(0, "A empresa está DESLIGADA pelo investidor — nada novo inicia até religar (botão na página).")
 
     hb = db.query(RunnerHeartbeat).order_by(RunnerHeartbeat.last_seen_at.desc()).first()
     if hb and now - hb.last_seen_at < timedelta(minutes=2):
@@ -359,6 +398,9 @@ def claim_next_task(db: Session, runner_id: str) -> AgentTask | None:
     segura o cadeado de identidade do agente pra sempre.
     """
     from datetime import timedelta
+
+    if empresa_pausada(db):
+        return None  # interruptor do investidor: nada novo é assumido
 
     stale_cutoff = datetime.utcnow() - timedelta(minutes=45)
     stale = (

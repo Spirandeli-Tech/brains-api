@@ -98,6 +98,24 @@ def create_task(
     return svc.create_task(db, data.model_dump())
 
 
+@router.get("/estado")
+def get_estado(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return {"pausada": svc.empresa_pausada(db)}
+
+
+@router.post("/estado")
+def set_estado(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """O interruptor do investidor: pausada=true desliga a empresa (nada novo inicia)."""
+    return {"pausada": svc.set_empresa_pausada(db, bool(data.get("pausada")))}
+
+
 @router.get("/diagnostico")
 def get_diagnostico(
     db: Session = Depends(get_db),
@@ -140,6 +158,8 @@ def executar_ritual_agora(
     current_user: User = Depends(get_current_user),
 ):
     """Botão 'Executar agora': dispara o ritual imediatamente, sem esperar o cron."""
+    if svc.empresa_pausada(db):
+        raise HTTPException(status_code=409, detail="Empresa desligada — religue antes de executar")
     ritual = next((r for r in svc.list_rituais() if r["name"] == ritual_name), None)
     if ritual is None:
         raise HTTPException(status_code=404, detail="Ritual não encontrado")
@@ -180,6 +200,8 @@ def runner_create_task(
     _: bool = Depends(require_runner),
 ):
     """Rituais: o runner enfileira tasks agendadas (fabrica/rituais.yaml)."""
+    if svc.empresa_pausada(db):
+        raise HTTPException(status_code=409, detail="Empresa desligada pelo investidor")
     return svc.create_task(db, data.model_dump())
 
 

@@ -334,6 +334,26 @@ def claim_next_run(db: Session, runner_id: str) -> ImplementationRun | None:
         .with_for_update(skip_locked=True)
         .options(lazyload(ImplementationRun.connection))
     )
+    # Interruptor da empresa de agentes: com a fábrica desligada, runs das
+    # conexões autônomas não são assumidas (fluxos pessoais seguem normais).
+    from app.services.empresa_service import empresa_pausada
+
+    if empresa_pausada(db):
+        from app.core.config import settings
+        from app.models import ProductivityConnection
+
+        autonomous = {n.strip() for n in (settings.AUTONOMOUS_CONNECTIONS or "").split(",") if n.strip()}
+        if autonomous:
+            stmt = stmt.where(
+                ~ImplementationRun.connection_id.in_(
+                    select(ProductivityConnection.id).where(
+                        ProductivityConnection.display_name.in_(autonomous)
+                    )
+                )
+            )
+    stmt = (
+        stmt
+    )
     run = db.execute(stmt).scalars().first()
     if run is None:
         return None
