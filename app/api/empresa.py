@@ -97,6 +97,15 @@ def create_task(
     return svc.create_task(db, data.model_dump())
 
 
+@router.get("/rituais")
+def list_rituais(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """A agenda da empresa (fabrica/rituais.yaml, montada read-only) + último disparo."""
+    return svc.list_rituais()
+
+
 # --- Runner-facing endpoints ---
 
 

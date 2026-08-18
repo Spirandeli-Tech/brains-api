@@ -12,6 +12,7 @@ user-facing são forçadas para o slug do CEO e enfileiram a skill ceo-diretriz.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -26,6 +27,41 @@ CEO_SLUG = "salomao"
 INVESTOR = "investidor"
 DEFAULT_SKILL = "atender-mensagem"
 INVESTOR_DIRECTIVE_SKILL = "ceo-diretriz"
+
+
+# --- Rituais (agenda da empresa, lida de fabrica/rituais.yaml montado ro) ---
+
+FABRICA_DIR = os.environ.get("FABRICA_DIR", "/data/fabrica")
+
+
+def list_rituais() -> list[dict]:
+    """Agenda + último disparo (estado gravado pelo runner). Vazio se não montado."""
+    rituais_path = os.path.join(FABRICA_DIR, "rituais.yaml")
+    state_path = os.path.join(FABRICA_DIR, ".rituais-state.json")
+    if not os.path.exists(rituais_path):
+        return []
+    try:
+        import json as _json
+
+        import yaml
+
+        rituais = (yaml.safe_load(open(rituais_path)) or {}).get("rituais", [])
+        state = _json.load(open(state_path)) if os.path.exists(state_path) else {}
+    except Exception:  # noqa: BLE001
+        return []
+    return [
+        {
+            "name": r.get("name"),
+            "agent_slug": r.get("agent"),
+            "skill": r.get("skill"),
+            "weekday": r.get("weekday"),
+            "day_of_month": r.get("day_of_month"),
+            "time": str(r.get("time", "")),
+            "last_fired": state.get(r.get("name")),
+        }
+        for r in rituais
+        if r.get("name")
+    ]
 
 
 # --- Agents ---

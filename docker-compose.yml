@@ -23,6 +23,7 @@ services:
       - "4242:4242"
     volumes:
       - .:/app
+      - ../fabrica:/data/fabrica:ro
     environment:
       DATABASE_URL: ${DATABASE_URL}
     depends_on:
