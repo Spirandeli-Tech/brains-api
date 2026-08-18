@@ -54,6 +54,7 @@ _SOURCE_LABELS = {
     "watcher": "Watcher",
     "planner": "Planejadora",
     "system": "Sistema",
+    "empresa": "Empresa",
 }
 
 # The bot's DM channel with the operator, resolved once and cached for the
@@ -148,6 +149,9 @@ def _target_channel(event_type: str, source: str) -> str | None:
         configured = settings.SLACK_CHANNEL_APPROVALS
     elif event_type == "run_finished" and source == "code_review":
         configured = settings.SLACK_CHANNEL_CODE_REVIEW
+    elif event_type == "agent_message":
+        # o feed da empresa de agentes espelhado no Slack (fabrica/PROTOCOLO.md)
+        configured = settings.SLACK_CHANNEL_EMPRESA
     else:
         return None  # UI-only — not worth a ping
     return configured or _dm()

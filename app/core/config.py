@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     SLACK_CHANNEL_CODE_REVIEW: str = ""   # code-review runs finished
     SLACK_CHANNEL_FAILURES: str = ""      # run_failed (any source)
     SLACK_CHANNEL_DIGEST: str = ""        # daily morning digest
+    SLACK_CHANNEL_EMPRESA: str = ""       # feed da empresa de agentes (agent_message)
     # Base URL of the web UI, used to build deep links in Slack messages.
     WEB_BASE_URL: str = "http://localhost:3737"
     # Read-only mounts for the devocionais listing — the skills write directly to
