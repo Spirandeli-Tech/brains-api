@@ -230,6 +230,28 @@ def list_agents(db: Session) -> list[dict]:
         ).all()
     )
 
+    # Overlay do pipeline de implementação: o step em execução de uma run ativa
+    # mapeia pro agente do ofício (Noé implementa, Natã revisa, Tomé testa) —
+    # sem isso o organograma diz "disponível" com o agente suando no pipeline.
+    from app.models import ImplementationRun, ImplementationStep
+
+    STEP_AGENT = {"enrich_ticket": "noe", "move_to_progress": "noe", "implement": "noe",
+                  "open_pr": "noe", "address_feedback": "noe",
+                  "code_review": "nata", "qa_notes": "tome"}
+    STEP_LABEL = {"implement": "implementando", "open_pr": "abrindo PR",
+                  "code_review": "revisando código", "qa_notes": "rodando QA",
+                  "enrich_ticket": "enriquecendo spec", "move_to_progress": "movendo ticket",
+                  "address_feedback": "ajustando feedback"}
+    pipeline_overlay: dict[str, str] = {}
+    active_runs = db.query(ImplementationRun).filter(ImplementationRun.status == "running").all()
+    for r in active_runs:
+        step = (db.query(ImplementationStep)
+                .filter(ImplementationStep.run_id == r.id, ImplementationStep.status == "running")
+                .first())
+        if step and step.kind in STEP_AGENT:
+            slug = STEP_AGENT[step.kind]
+            pipeline_overlay[slug] = f"{r.ticket_key or 'ticket'} · {STEP_LABEL.get(step.kind, step.kind)} (pipeline)"
+
     result = []
     for a in agents:
         running_task = running.get(a.slug)
@@ -245,9 +267,11 @@ def list_agents(db: Session) -> list[dict]:
                 "bio": a.bio,
                 "skills": a.skills or [],
                 "enabled": a.enabled,
-                "status": "running" if current_skill else ("queued" if queued_counts.get(a.slug) else "idle"),
-                "current_skill": current_skill,
-                "current_task_detail": _task_detail(running_task) if running_task else None,
+                "status": ("running" if (current_skill or a.slug in pipeline_overlay)
+                           else ("queued" if queued_counts.get(a.slug) else "idle")),
+                "current_skill": current_skill or (("pipeline") if a.slug in pipeline_overlay else None),
+                "current_task_detail": (_task_detail(running_task) if running_task
+                                        else pipeline_overlay.get(a.slug)),
                 "queued_count": int(queued_counts.get(a.slug, 0)),
                 "total_cost_usd": float(costs.get(a.slug) or 0),
             }
