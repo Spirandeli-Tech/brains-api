@@ -21,6 +21,7 @@ class AgentRead(BaseModel):
     # derivado das tasks: idle | running | queued
     status: str = "idle"
     current_skill: str | None = None
+    current_task_detail: str | None = None
     queued_count: int = 0
     total_cost_usd: float = 0.0
 

@@ -88,8 +88,19 @@ def list_agents(db: Session) -> list[dict]:
     """Agentes + estado derivado das tasks (running/queued/custo acumulado)."""
     agents = db.query(Agent).filter(Agent.enabled.is_(True)).order_by(Agent.created_at.asc()).all()
 
+    def _task_detail(t: AgentTask) -> str:
+        """Descrição humana do que o agente está fazendo agora (pro organograma)."""
+        p = t.payload or {}
+        if p.get("ritual"):
+            return f"ritual {p['ritual']}"
+        if p.get("body"):
+            body = str(p["body"])
+            de = f" (de @{p['from_agent']})" if p.get("from_agent") else ""
+            return (body[:110] + "…" if len(body) > 110 else body) + de
+        return t.skill
+
     running = {
-        t.agent_slug: t.skill
+        t.agent_slug: t
         for t in db.query(AgentTask).filter(AgentTask.status == "running").all()
     }
     queued_counts = dict(
@@ -108,7 +119,8 @@ def list_agents(db: Session) -> list[dict]:
 
     result = []
     for a in agents:
-        current_skill = running.get(a.slug)
+        running_task = running.get(a.slug)
+        current_skill = running_task.skill if running_task else None
         result.append(
             {
                 "id": a.id,
@@ -122,6 +134,7 @@ def list_agents(db: Session) -> list[dict]:
                 "enabled": a.enabled,
                 "status": "running" if current_skill else ("queued" if queued_counts.get(a.slug) else "idle"),
                 "current_skill": current_skill,
+                "current_task_detail": _task_detail(running_task) if running_task else None,
                 "queued_count": int(queued_counts.get(a.slug, 0)),
                 "total_cost_usd": float(costs.get(a.slug) or 0),
             }
