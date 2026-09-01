@@ -1,7 +1,7 @@
 """add log column to agent_tasks (transcript ao vivo da execução)
 
 Revision ID: f3d4e5a6b7c8
-Revises: e7a9b2c4d6f2
+Revises: e7a9b2c4d6f8
 Create Date: 2026-08-18
 """
 from typing import Sequence, Union
