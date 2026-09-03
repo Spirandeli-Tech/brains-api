@@ -71,3 +71,10 @@ class WatcherReport(BaseModel):
     status: str
     error: str | None = None
     sightings: list[SightingReport] = []
+    # Snapshot half of the tick, for the stale-run reaper. Sent only by
+    # watchers that list their repos exhaustively; `None` means "this tick
+    # can't vouch for a full scan, don't archive anything".
+    #   scanned_repos: repo keys listed end to end this tick
+    #   open_pr_keys:  "<repo_name>#<pr_number>" for every PR still open there
+    scanned_repos: list[str] | None = None
+    open_pr_keys: list[str] | None = None

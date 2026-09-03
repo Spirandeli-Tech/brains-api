@@ -25,6 +25,18 @@ _KIND_ORDER = {entry["kind"]: i for i, entry in enumerate(STEP_CATALOG)}
 
 ACTIVE_RUN_STATUSES = ("queued", "running", "awaiting_approval")
 TERMINAL_RUN_STATUSES = ("done", "failed", "cancelled")
+# Statuses the stale-run reaper may archive. `running` is deliberately out:
+# the runner is mid-step on it and patches the status back itself.
+REAPABLE_RUN_STATUSES = ("queued", "awaiting_approval")
+
+STALE_MERGED_REASON = (
+    "PR já foi mergiado ou fechado — review arquivada automaticamente."
+)
+STALE_NOT_REQUESTED_REASON = (
+    "O PR segue aberto, mas não está mais esperando você "
+    "(já aprovado por você ou fora da sua lista de reviewers) — "
+    "review arquivada automaticamente."
+)
 
 
 def pr_number_from_url(url: str) -> str | None:
@@ -141,6 +153,65 @@ def has_active_run_for_pr(db: Session, pr_url: str) -> bool:
         .first()
     )
     return existing is not None
+
+
+def reap_stale_runs(
+    db: Session,
+    connection_id: UUID | None,
+    scanned_repos: list[str],
+    live_keys: set[str],
+    open_keys: set[str] | None,
+) -> list[tuple[CodeReviewRun, str]]:
+    """Archive runs whose PR no longer needs a review from me.
+
+    A review watcher opens a run when a PR shows up in the review-requested
+    list, but nothing ever closed it when the PR left that list — so a PR that
+    got merged the next day kept its review parked in "Awaiting approval"
+    indefinitely (17 such runs had piled up by Sep/2026, 16 of them merged).
+
+    The fix is to read each tick as a full snapshot rather than a stream. The
+    watcher reports the *whole* live set for the repos it listed end to end, so
+    any reapable run inside that scope and outside the live set is provably
+    stale. `open_keys` only sharpens the message (merged/closed vs. still open
+    but no longer mine); when it's None the generic reason is used.
+
+    Keys are `"<repo_name>#<pr_number>"`, matching what the watcher reports.
+    Runs with no repo_name or pr_number (hand-launched from a bare URL) fall
+    outside every scope and are never touched. Caller commits.
+    """
+    if connection_id is None or not scanned_repos:
+        return []
+
+    runs = (
+        db.query(CodeReviewRun)
+        .filter(
+            CodeReviewRun.connection_id == connection_id,
+            CodeReviewRun.repo_name.in_(list(scanned_repos)),
+            CodeReviewRun.status.in_(REAPABLE_RUN_STATUSES),
+        )
+        .all()
+    )
+
+    reaped: list[tuple[CodeReviewRun, str]] = []
+    for run in runs:
+        if not run.repo_name or not run.pr_number:
+            continue
+        key = f"{run.repo_name}#{run.pr_number}"
+        if key in live_keys:
+            continue
+        reason = (
+            STALE_MERGED_REASON
+            if open_keys is not None and key not in open_keys
+            else STALE_NOT_REQUESTED_REASON
+        )
+        run.status = "cancelled"
+        run.error = reason
+        run.claimed_by = None
+        run.claimed_at = None
+        run.updated_at = datetime.utcnow()
+        reaped.append((run, reason))
+
+    return reaped
 
 
 def get_run(db: Session, run_id: UUID) -> CodeReviewRun | None:

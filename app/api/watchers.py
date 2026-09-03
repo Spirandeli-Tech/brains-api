@@ -121,6 +121,8 @@ def runner_report_watcher(
         [s.model_dump() for s in data.sightings],
         data.status,
         data.error,
+        scanned_repos=data.scanned_repos,
+        open_pr_keys=data.open_pr_keys,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Watcher not found")

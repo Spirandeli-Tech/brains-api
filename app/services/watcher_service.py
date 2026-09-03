@@ -9,6 +9,11 @@ reviewer and creates a CodeReviewRun for each new one;
 and creates an AddressPrRun for each. In both cases the pipeline's own steps
 (review_draft/post_review, or fix_draft/commit_push/post_replies) are what pause
 for human approval, so this service has nothing extra to gate.
+
+A tick that reports `scanned_repos` is read as a full snapshot, not just a list
+of new findings: the reviews it *doesn't* mention for those repos are archived
+(see `_reap_stale_review_runs`). Without that, a PR merged after its review was
+drafted left the review parked in "Awaiting approval" forever.
 """
 from __future__ import annotations
 
@@ -143,12 +148,76 @@ def claim_next_watcher(db: Session, runner_id: str) -> dict | None:  # noqa: ARG
     }
 
 
+PR_REVIEW_WATCHER_KINDS = ("github_review_requested", "bitbucket_review_requested")
+
+
+def _reap_stale_review_runs(
+    db: Session,
+    watcher: Watcher,
+    sightings: list[dict],
+    scanned_repos: list[str] | None,
+    open_pr_keys: list[str] | None,
+) -> list[str]:
+    """Close out reviews for PRs that dropped off this watcher's list.
+
+    Sightings alone are an append-only stream: they say what appeared, never
+    what disappeared, so a run outlived the PR that justified it. When the
+    watcher can vouch for a full scan (`scanned_repos`), the sightings for
+    those repos *are* the complete live set, and everything reapable outside
+    it gets archived with a reason. Emits one terse, Slack-silent event per
+    tick so the archiving is visible in the feed without pinging the phone.
+    """
+    if not scanned_repos:
+        return []
+
+    scope = set(scanned_repos)
+    live_keys = {
+        f"{s['repo_name']}#{s['pr_number']}"
+        for s in sightings
+        if s.get("repo_name") in scope and s.get("pr_number")
+    }
+    reaped = code_review_service.reap_stale_runs(
+        db,
+        connection_id=watcher.connection_id,
+        scanned_repos=scanned_repos,
+        live_keys=live_keys,
+        open_keys=set(open_pr_keys) if open_pr_keys is not None else None,
+    )
+    if not reaped:
+        return []
+
+    conn = watcher.connection
+    labels = ", ".join(
+        f"{run.repo_name}#{run.pr_number}" for run, _ in reaped[:5]
+    )
+    if len(reaped) > 5:
+        labels += f" +{len(reaped) - 5}"
+    events.emit_event(
+        db,
+        source="watcher",
+        event_type="runs_archived",
+        title=(
+            f"{len(reaped)} review(s) arquivada(s): PR já resolvido"
+            if len(reaped) > 1
+            else f"Review arquivada: PR {reaped[0][0].pr_number} já resolvido"
+        ),
+        summary=labels,
+        connection_name=conn.display_name if conn else None,
+        ref_kind="watcher",
+        ref_id=watcher.id,
+        url_path="/code-review",
+    )
+    return [str(run.id) for run, _ in reaped]
+
+
 def report_watcher_tick(
     db: Session,
     watcher_id: UUID,
     sightings: list[dict],
     status: str,
     error: str | None,
+    scanned_repos: list[str] | None = None,
+    open_pr_keys: list[str] | None = None,
 ) -> dict | None:
     watcher = db.query(Watcher).filter(Watcher.id == watcher_id).first()
     if watcher is None:
@@ -158,6 +227,15 @@ def report_watcher_tick(
     watcher.last_error = error
 
     created_run_ids: list[str] = []
+    cancelled_run_ids: list[str] = []
+    if status == "ok" and watcher.kind in PR_REVIEW_WATCHER_KINDS:
+        # Reap before launching: a PR can be both stale (old run) and live
+        # (fresh sighting) only if it's in the live set, which the reaper
+        # skips — so the order is safe either way, and doing it first keeps
+        # the newly created runs out of the query.
+        cancelled_run_ids = _reap_stale_review_runs(
+            db, watcher, sightings, scanned_repos, open_pr_keys
+        )
     if status == "ok":
         for sighting in sightings:
             exists = (
@@ -270,4 +348,7 @@ def report_watcher_tick(
             )
 
     db.commit()
-    return {"created_run_ids": created_run_ids}
+    return {
+        "created_run_ids": created_run_ids,
+        "cancelled_run_ids": cancelled_run_ids,
+    }
