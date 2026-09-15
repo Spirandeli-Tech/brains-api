@@ -53,6 +53,17 @@ def _handle(client, req) -> None:
 
     if req.type not in ("interactive", "events_api"):
         return
+    # The conversation path persists before acknowledging; a failed DB write
+    # must allow Slack to retry instead of silently losing the operator's turn.
+    if settings.SLACK_CONVERSATIONS_ENABLED and req.type == "events_api":
+        from app.slack.conversations import receive_event
+        try:
+            receive_event(req.payload or {})
+        except Exception:
+            logger.error("Conversation event refused or not persisted; no ACK")
+            return
+        client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
+        return
     # Ack every envelope immediately (Slack requires < 3s), then do the work.
     client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
 

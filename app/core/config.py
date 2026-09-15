@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # scheduler receive interactive button clicks (approve/discard) with no public
     # URL. Empty disables the interactive listener; text messages still work.
     SLACK_APP_TOKEN: str = ""
+    # Opt-in until migration and the host's conversation runner are configured.
+    SLACK_CONVERSATIONS_ENABLED: bool = False
+    SLACK_WORKSPACE_ID: str = ""
+    SLACK_APPLICATION_ID: str = ""
+    SLACK_BRAINS_USER_ID: str = ""
+    SLACK_ARTIFACT_DIR: str = "/data/slack-artifacts"
     # Per-category channel routing (fase 3.1). Each holds a Slack channel id
     # (e.g. "C0123ABCD") the bot has been invited to. Any left empty falls back
     # to the operator DM (SLACK_USER_ID), so partial config just routes the

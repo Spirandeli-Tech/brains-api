@@ -138,6 +138,8 @@ async def main() -> None:
     # approval buttons work (no-op if SLACK_APP_TOKEN isn't set). Non-blocking.
     from app.slack.actions import start_socket_mode
     start_socket_mode()
+    from app.slack.conversations import start_delivery_worker
+    start_delivery_worker()
     run_cycle()
     while True:
         await asyncio.sleep(INTERVAL_SECONDS)

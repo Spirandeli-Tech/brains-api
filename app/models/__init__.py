@@ -38,6 +38,7 @@ from app.models.agent import Agent
 from app.models.agent_task import AgentTask
 from app.models.agent_message import AgentMessage
 from app.core.db import Base
+from app.models.conversation import Conversation, ConversationTurn, ConversationDelivery
 
 __all__ = [
     "SystemMeta",
