@@ -37,7 +37,6 @@ SOURCE_LABELS = {
     "watcher": "Watcher",
     "planner": "Planejadora",
     "system": "Sistema",
-    "empresa": "Empresa",
 }
 
 

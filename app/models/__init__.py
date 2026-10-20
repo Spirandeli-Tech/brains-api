@@ -34,9 +34,6 @@ from app.models.runner_heartbeat import RunnerHeartbeat
 from app.models.idea import Idea
 from app.models.video import Video
 from app.models.video_script import VideoScript
-from app.models.agent import Agent
-from app.models.agent_task import AgentTask
-from app.models.agent_message import AgentMessage
 from app.core.db import Base
 from app.models.conversation import Conversation, ConversationTurn, ConversationDelivery
 
@@ -77,8 +74,5 @@ __all__ = [
     "Idea",
     "Video",
     "VideoScript",
-    "Agent",
-    "AgentTask",
-    "AgentMessage",
     "Base",
 ]

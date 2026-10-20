@@ -9,10 +9,6 @@ class Settings(BaseSettings):
     # Shared secret the host-side implementation runner presents (X-Runner-Token)
     # to claim runs and patch status. Empty disables the runner endpoints.
     RUNNER_TOKEN: str = ""
-    # conexões da fábrica de agentes: steps de implementação nunca pausam para
-    # aprovação (gates humanos são só dinheiro/publicação/legal). Display names
-    # separados por vírgula.
-    AUTONOMOUS_CONNECTIONS: str = ""
     # Read-only mount of the host's ~/.claude, used to discover available skills for automations.
     CLAUDE_HOME_DIR: str = "/root/.claude"
     # Slack notifier (proactive platform fase 3). Both empty disables it — the
@@ -37,7 +33,6 @@ class Settings(BaseSettings):
     SLACK_CHANNEL_CODE_REVIEW: str = ""   # code-review runs finished
     SLACK_CHANNEL_FAILURES: str = ""      # run_failed (any source)
     SLACK_CHANNEL_DIGEST: str = ""        # daily morning digest
-    SLACK_CHANNEL_EMPRESA: str = ""       # feed da empresa de agentes (agent_message)
     # Base URL of the web UI, used to build deep links in Slack messages.
     WEB_BASE_URL: str = "http://localhost:3737"
     # Read-only mounts for the devocionais listing — the skills write directly to

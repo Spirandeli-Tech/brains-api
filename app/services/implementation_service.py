@@ -115,21 +115,6 @@ def launch_run(
     # Keep canonical execution order regardless of the order steps arrived in.
     ordered = sorted(set(steps), key=lambda k: _KIND_ORDER.get(k, 999))
 
-    # Conexões autônomas (fábrica de agentes): nenhum step pausa para aprovação.
-    # Governança da empresa: gates humanos são dinheiro/publicação/legal — PR em
-    # repo interno não é gate (Decision Log 18/ago). Lista via env
-    # AUTONOMOUS_CONNECTIONS (display names separados por vírgula).
-    from app.core.config import settings
-    from app.models import ProductivityConnection
-
-    autonomous_names = {
-        n.strip() for n in (settings.AUTONOMOUS_CONNECTIONS or "").split(",") if n.strip()
-    }
-    conn_row = db.query(ProductivityConnection).filter(
-        ProductivityConnection.id == connection_id
-    ).first()
-    autonomous = bool(conn_row and conn_row.display_name in autonomous_names)
-
     run = ImplementationRun(
         created_by_user_id=user_id,
         connection_id=connection_id,
@@ -164,7 +149,7 @@ def launch_run(
                     run_id=run.id,
                     kind=kind,
                     position=position,
-                    sensitive=False if autonomous else _KIND_SENSITIVE.get(kind, False),
+                    sensitive=_KIND_SENSITIVE.get(kind, False),
                     status="pending",
                     repo_name=target_repo,
                 )
@@ -333,26 +318,6 @@ def claim_next_run(db: Session, runner_id: str) -> ImplementationRun | None:
         .limit(1)
         .with_for_update(skip_locked=True)
         .options(lazyload(ImplementationRun.connection))
-    )
-    # Interruptor da empresa de agentes: com a fábrica desligada, runs das
-    # conexões autônomas não são assumidas (fluxos pessoais seguem normais).
-    from app.services.empresa_service import empresa_pausada
-
-    if empresa_pausada(db):
-        from app.core.config import settings
-        from app.models import ProductivityConnection
-
-        autonomous = {n.strip() for n in (settings.AUTONOMOUS_CONNECTIONS or "").split(",") if n.strip()}
-        if autonomous:
-            stmt = stmt.where(
-                ~ImplementationRun.connection_id.in_(
-                    select(ProductivityConnection.id).where(
-                        ProductivityConnection.display_name.in_(autonomous)
-                    )
-                )
-            )
-    stmt = (
-        stmt
     )
     run = db.execute(stmt).scalars().first()
     if run is None:
